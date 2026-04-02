@@ -40,8 +40,22 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Request failed with status ${response.status}`);
+    const raw = await response.text();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
+        const detail =
+          typeof parsed.detail === "string"
+            ? parsed.detail
+            : typeof parsed.message === "string"
+              ? parsed.message
+              : null;
+        throw new Error(detail ?? raw);
+      } catch {
+        throw new Error(raw);
+      }
+    }
+    throw new Error(`Request failed with status ${response.status}`);
   }
 
   if (response.status === 204) {

@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import Base, engine, get_db
@@ -190,8 +191,16 @@ def healthcheck() -> dict[str, str]:
 
 @app.post("/policies", response_model=PolicyResponse, status_code=status.HTTP_201_CREATED)
 def create_policy(payload: PolicyCreate, db: Session = Depends(get_db)) -> PolicyResponse:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+
+    duplicate = db.scalar(select(Policy).where(Policy.name == name))
+    if duplicate is not None:
+        raise HTTPException(status_code=409, detail="Policy with this name already exists")
+
     policy = Policy(
-        name=payload.name,
+        name=name,
         description=payload.description,
         policy_scope=payload.policy_scope,
         lifecycle_event_type=payload.lifecycle_event_type,
@@ -201,7 +210,11 @@ def create_policy(payload: PolicyCreate, db: Session = Depends(get_db)) -> Polic
         execution=payload.execution.model_dump(mode="json") if payload.execution else {},
     )
     db.add(policy)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Policy with this name already exists")
     db.refresh(policy)
     return to_policy_response(policy, db=db)
 
@@ -238,10 +251,27 @@ def update_policy(policy_id: int, payload: PolicyUpdate, db: Session = Depends(g
         changes["conditions"] = [item.model_dump(mode="json") for item in payload.conditions or []]
     if "execution" in changes and payload.execution is not None:
         changes["execution"] = payload.execution.model_dump(mode="json")
+    if "name" in changes and changes["name"] is not None:
+        normalized_name = str(changes["name"]).strip()
+        if not normalized_name:
+            raise HTTPException(status_code=422, detail="name is required")
+        duplicate = db.scalar(
+            select(Policy).where(
+                Policy.id != policy_id,
+                Policy.name == normalized_name,
+            )
+        )
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="Policy with this name already exists")
+        changes["name"] = normalized_name
     for key, value in changes.items():
         setattr(policy, key, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Policy with this name already exists")
     db.refresh(policy)
     return to_policy_response(policy, db=db)
 

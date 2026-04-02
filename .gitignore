@@ -3,6 +3,7 @@
 .run/
 frontend/node_modules/
 frontend/dist/
+frontend/.next/
 __pycache__/
 *.pyc
 *.pyo

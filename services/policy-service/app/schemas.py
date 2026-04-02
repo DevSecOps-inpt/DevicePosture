@@ -24,7 +24,7 @@ def _validate_policy_scope(
 
 
 class PolicyCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     policy_scope: PolicyScope = "posture"
     lifecycle_event_type: LifecycleEventType | None = None
@@ -42,7 +42,7 @@ class PolicyCreate(BaseModel):
 
 
 class PolicyUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     policy_scope: PolicyScope | None = None
     lifecycle_event_type: LifecycleEventType | None = None
