@@ -1,0 +1,27 @@
+{
+  "agent": {
+    "name": "windows-powershell-agent",
+    "interval_seconds": 2,
+    "active_grace_multiplier": 3,
+    "log_path": "%ProgramData%\\DevicePosture\\collector.log",
+    "write_payload_file": ""
+  },
+  "transport": {
+    "enabled": true,
+    "url": "http://127.0.0.1:8011/telemetry",
+    "timeout_seconds": 10,
+    "retry_count": 3,
+    "bearer_token": "",
+    "headers": {}
+  },
+  "collectors": {
+    "enabled": [
+      "system_info",
+      "hotfixes",
+      "services",
+      "processes",
+      "antivirus"
+    ],
+    "settings": {}
+  }
+}

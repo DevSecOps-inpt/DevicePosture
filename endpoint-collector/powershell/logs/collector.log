@@ -1,0 +1,513 @@
+﻿2026-04-01T01:12:03.3630483Z [INFO] Loaded collector config from C:\Users\essag\Documents\Playground\endpoint-collector\powershell\collector.config.json
+2026-04-01T01:12:03.4105715Z [INFO] Starting PowerShell endpoint agent with interval=2s heartbeat_timeout=6s url=http://127.0.0.1:8011/telemetry
+2026-04-01T01:12:03.4165732Z [INFO] Enabled collectors: system_info, hotfixes, services, processes, antivirus
+2026-04-01T01:12:03.4175732Z [INFO] Starting collector cycle
+2026-04-01T01:12:05.9711776Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:12:06.0939510Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:12:06.1128489Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 7
+2026-04-01T01:12:06.1159524Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:12:08.1245970Z [INFO] Starting collector cycle
+2026-04-01T01:12:09.8394740Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:12:09.8704241Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:12:09.8724229Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 8
+2026-04-01T01:12:09.8744262Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:19.2932051Z [INFO] Loaded collector config from C:\Users\essag\Documents\Playground\endpoint-collector\\powershell\\collector.config.json
+2026-04-01T01:20:19.3312270Z [INFO] Starting PowerShell endpoint agent with interval=2s heartbeat_timeout=6s url=http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:19.3366951Z [INFO] Enabled collectors: system_info, hotfixes, services, processes, antivirus
+2026-04-01T01:20:19.3377271Z [INFO] Starting collector cycle
+2026-04-01T01:20:21.8370999Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:21.9257816Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:21.9358675Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 9
+2026-04-01T01:20:21.9378729Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:23.9493380Z [INFO] Starting collector cycle
+2026-04-01T01:20:25.6351877Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:25.6526076Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:25.6546640Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 10
+2026-04-01T01:20:25.6557004Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:27.6595694Z [INFO] Starting collector cycle
+2026-04-01T01:20:29.3252578Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:29.3457164Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:29.3477423Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 11
+2026-04-01T01:20:29.3498026Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:31.3677424Z [INFO] Starting collector cycle
+2026-04-01T01:20:33.0334017Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:33.0498366Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:33.0518802Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 12
+2026-04-01T01:20:33.0529300Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:35.0586036Z [INFO] Starting collector cycle
+2026-04-01T01:20:36.6076556Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:36.6229605Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:36.6250046Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 13
+2026-04-01T01:20:36.6260110Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:38.6356904Z [INFO] Starting collector cycle
+2026-04-01T01:20:40.7864727Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:40.8019702Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:40.8051328Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 14
+2026-04-01T01:20:40.8061530Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:42.8154414Z [INFO] Starting collector cycle
+2026-04-01T01:20:44.4198558Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:44.4468620Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:44.4488598Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 15
+2026-04-01T01:20:44.4508613Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:46.4654336Z [INFO] Starting collector cycle
+2026-04-01T01:20:48.0056367Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:48.0242704Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:48.0263331Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 16
+2026-04-01T01:20:48.0283787Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:50.0405840Z [INFO] Starting collector cycle
+2026-04-01T01:20:51.8403366Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:51.8594241Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:51.8625262Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 17
+2026-04-01T01:20:51.8635522Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:53.8664823Z [INFO] Starting collector cycle
+2026-04-01T01:20:55.4157077Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:55.4380640Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:55.4390665Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 18
+2026-04-01T01:20:55.4410675Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:20:57.4482541Z [INFO] Starting collector cycle
+2026-04-01T01:20:59.2518092Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:20:59.2767135Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:20:59.2801811Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 19
+2026-04-01T01:20:59.2821817Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:01.2996366Z [INFO] Starting collector cycle
+2026-04-01T01:21:02.8420390Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:02.8610356Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:02.8620469Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 20
+2026-04-01T01:21:02.8640707Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:04.8709935Z [INFO] Starting collector cycle
+2026-04-01T01:21:06.4096433Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:06.4300184Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:06.4322854Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 21
+2026-04-01T01:21:06.4332839Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:08.4461594Z [INFO] Starting collector cycle
+2026-04-01T01:21:10.1153607Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:10.1321527Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:10.1331535Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 22
+2026-04-01T01:21:10.1357249Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:12.1519682Z [INFO] Starting collector cycle
+2026-04-01T01:21:13.9624966Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:13.9832373Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:13.9857415Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 23
+2026-04-01T01:21:13.9867658Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:15.9916500Z [INFO] Starting collector cycle
+2026-04-01T01:21:17.8100745Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:17.8312097Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:17.8333931Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 24
+2026-04-01T01:21:17.8344045Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:19.8440540Z [INFO] Starting collector cycle
+2026-04-01T01:21:21.5395450Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:21.5591491Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:21.5611956Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 25
+2026-04-01T01:21:21.5632370Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:23.5661684Z [INFO] Starting collector cycle
+2026-04-01T01:21:25.2729798Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:25.3033293Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:25.3063306Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 26
+2026-04-01T01:21:25.3083314Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:27.3188045Z [INFO] Starting collector cycle
+2026-04-01T01:21:28.9137465Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:28.9327134Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:28.9337476Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 27
+2026-04-01T01:21:28.9357994Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:30.9420661Z [INFO] Starting collector cycle
+2026-04-01T01:21:32.5705699Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:32.5896538Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:32.5916733Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 28
+2026-04-01T01:21:32.5939619Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:34.5984401Z [INFO] Starting collector cycle
+2026-04-01T01:21:36.2914112Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:36.3155348Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:36.3175707Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 29
+2026-04-01T01:21:36.3196393Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:38.3343278Z [INFO] Starting collector cycle
+2026-04-01T01:21:39.8905423Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:39.9085480Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:39.9095774Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 30
+2026-04-01T01:21:39.9116214Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:41.9266125Z [INFO] Starting collector cycle
+2026-04-01T01:21:43.4758554Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:43.4944808Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:43.4964868Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 31
+2026-04-01T01:21:43.4974940Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:45.5069240Z [INFO] Starting collector cycle
+2026-04-01T01:21:47.3011042Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:47.3292113Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:47.3312269Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 32
+2026-04-01T01:21:47.3333463Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:49.3349996Z [INFO] Starting collector cycle
+2026-04-01T01:21:51.4403861Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:51.4608843Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:51.4621712Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 33
+2026-04-01T01:21:51.4642092Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:53.4732214Z [INFO] Starting collector cycle
+2026-04-01T01:21:55.6293992Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:55.6476741Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:55.6498755Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 34
+2026-04-01T01:21:55.6511263Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:21:57.6680478Z [INFO] Starting collector cycle
+2026-04-01T01:21:59.2816929Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:21:59.3004782Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:21:59.3019869Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 35
+2026-04-01T01:21:59.3040155Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:01.3160320Z [INFO] Starting collector cycle
+2026-04-01T01:22:02.8890131Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:02.9080666Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:02.9091543Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 36
+2026-04-01T01:22:02.9112287Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:04.9252698Z [INFO] Starting collector cycle
+2026-04-01T01:22:06.5383810Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:06.5574236Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:06.5594783Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 37
+2026-04-01T01:22:06.5615143Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:08.5628290Z [INFO] Starting collector cycle
+2026-04-01T01:22:10.1126824Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:10.1325081Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:10.1335515Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 38
+2026-04-01T01:22:10.1355860Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:12.1488301Z [INFO] Starting collector cycle
+2026-04-01T01:22:13.6949991Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:13.7141210Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:13.7161845Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 39
+2026-04-01T01:22:13.7172151Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:15.7265823Z [INFO] Starting collector cycle
+2026-04-01T01:22:17.2663399Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:17.2825435Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:17.2865683Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 40
+2026-04-01T01:22:17.2885970Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:19.2941640Z [INFO] Starting collector cycle
+2026-04-01T01:22:20.8853591Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:20.9072168Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:20.9102281Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 41
+2026-04-01T01:22:20.9122385Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:22.9185360Z [INFO] Starting collector cycle
+2026-04-01T01:22:24.4721264Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:24.4909264Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:24.4929716Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 42
+2026-04-01T01:22:24.4940299Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:26.5006588Z [INFO] Starting collector cycle
+2026-04-01T01:22:28.0586199Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:28.0790831Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:28.0811148Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 43
+2026-04-01T01:22:28.0831556Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:30.0894937Z [INFO] Starting collector cycle
+2026-04-01T01:22:31.6917869Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:31.7090427Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:31.7110666Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 44
+2026-04-01T01:22:31.7120731Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:33.7225975Z [INFO] Starting collector cycle
+2026-04-01T01:22:35.5765885Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:35.5937245Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:35.5957327Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 45
+2026-04-01T01:22:35.5967435Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:37.6104447Z [INFO] Starting collector cycle
+2026-04-01T01:22:39.1645399Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:39.1856531Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:39.1877707Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 46
+2026-04-01T01:22:39.1887735Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:41.1918564Z [INFO] Starting collector cycle
+2026-04-01T01:22:42.9634170Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:42.9821380Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:42.9842326Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 47
+2026-04-01T01:22:42.9862861Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:22:45.0026155Z [INFO] Starting collector cycle
+2026-04-01T01:22:46.6641643Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:22:46.6850298Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:22:46.6870981Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 48
+2026-04-01T01:22:46.6881385Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:24.3064770Z [INFO] Loaded collector config from C:\Users\essag\Documents\Playground\endpoint-collector\\powershell\\collector.config.json
+2026-04-01T01:23:24.3467834Z [INFO] Starting PowerShell endpoint agent with interval=2s heartbeat_timeout=6s url=http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:24.3519109Z [INFO] Enabled collectors: system_info, hotfixes, services, processes, antivirus
+2026-04-01T01:23:24.3543110Z [INFO] Starting collector cycle
+2026-04-01T01:23:26.7382390Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:26.8444430Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:26.8578426Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 49
+2026-04-01T01:23:26.8588434Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:28.8760079Z [INFO] Starting collector cycle
+2026-04-01T01:23:30.5487667Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:30.5833947Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:30.5855584Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 50
+2026-04-01T01:23:30.5869462Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:32.5989446Z [INFO] Starting collector cycle
+2026-04-01T01:23:34.1842594Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:34.2048927Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:34.2079059Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 51
+2026-04-01T01:23:34.2099191Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:36.2155192Z [INFO] Starting collector cycle
+2026-04-01T01:23:37.7779650Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:37.7973150Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:37.7993486Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 52
+2026-04-01T01:23:37.8013995Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:39.8142960Z [INFO] Starting collector cycle
+2026-04-01T01:23:41.3876545Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:41.4064094Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:41.4084596Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 53
+2026-04-01T01:23:41.4104873Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:43.4267770Z [INFO] Starting collector cycle
+2026-04-01T01:23:45.0184347Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:45.0370369Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:45.0390666Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 54
+2026-04-01T01:23:45.0402376Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:47.0529056Z [INFO] Starting collector cycle
+2026-04-01T01:23:48.6893468Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:48.7118564Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:48.7139513Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 55
+2026-04-01T01:23:48.7161180Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:50.7325585Z [INFO] Starting collector cycle
+2026-04-01T01:23:52.3125752Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:52.3584032Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:52.3604349Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 56
+2026-04-01T01:23:52.3624520Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:54.3666888Z [INFO] Starting collector cycle
+2026-04-01T01:23:55.9267242Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:55.9450445Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:55.9470596Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 57
+2026-04-01T01:23:55.9480654Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:23:57.9615120Z [INFO] Starting collector cycle
+2026-04-01T01:23:59.5692752Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:23:59.5902428Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:23:59.5922541Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 58
+2026-04-01T01:23:59.5932867Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:01.6044108Z [INFO] Starting collector cycle
+2026-04-01T01:24:03.1737736Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:03.1915190Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:03.1935249Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 59
+2026-04-01T01:24:03.1945283Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:05.2053090Z [INFO] Starting collector cycle
+2026-04-01T01:24:06.7903858Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:06.8083771Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:06.8103821Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 60
+2026-04-01T01:24:06.8113797Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:08.8267599Z [INFO] Starting collector cycle
+2026-04-01T01:24:10.3922554Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:10.4103817Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:10.4113869Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 61
+2026-04-01T01:24:10.4133950Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:12.4306658Z [INFO] Starting collector cycle
+2026-04-01T01:24:14.0910858Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:14.1130326Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:14.1171703Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 62
+2026-04-01T01:24:14.1181734Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:16.1296019Z [INFO] Starting collector cycle
+2026-04-01T01:24:17.7937090Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:17.8652512Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:17.8682653Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 63
+2026-04-01T01:24:17.8713687Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:19.8741908Z [INFO] Starting collector cycle
+2026-04-01T01:24:21.4604405Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:21.4808022Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:21.4828315Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 64
+2026-04-01T01:24:21.4841550Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:23.4967893Z [INFO] Starting collector cycle
+2026-04-01T01:24:25.0788883Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:25.1008377Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:25.1038618Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 65
+2026-04-01T01:24:25.1059178Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:27.1176509Z [INFO] Starting collector cycle
+2026-04-01T01:24:28.6968504Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:28.7180390Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:28.7190746Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 66
+2026-04-01T01:24:28.7210846Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:30.7350179Z [INFO] Starting collector cycle
+2026-04-01T01:24:32.2871061Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:32.3084384Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:32.3104604Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 67
+2026-04-01T01:24:32.3114712Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:24:34.3153252Z [INFO] Starting collector cycle
+2026-04-01T01:24:35.8867629Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:24:35.9062780Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:24:35.9083357Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 68
+2026-04-01T01:24:35.9103577Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:02.1596308Z [INFO] Loaded collector config from C:\Users\essag\Documents\Playground\endpoint-collector\\powershell\\collector.config.json
+2026-04-01T01:25:02.2003946Z [INFO] Starting PowerShell endpoint agent with interval=2s heartbeat_timeout=6s url=http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:02.2065012Z [INFO] Enabled collectors: system_info, hotfixes, services, processes, antivirus
+2026-04-01T01:25:02.2075576Z [INFO] Starting collector cycle
+2026-04-01T01:25:04.5859140Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:04.6912630Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:04.7074190Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 69
+2026-04-01T01:25:04.7094404Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:06.7173124Z [INFO] Starting collector cycle
+2026-04-01T01:25:08.5116890Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:08.5328343Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:08.5348419Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 70
+2026-04-01T01:25:08.5368532Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:10.5428328Z [INFO] Starting collector cycle
+2026-04-01T01:25:12.1627922Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:12.1824558Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:12.1834843Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 71
+2026-04-01T01:25:12.1855675Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:14.1914632Z [INFO] Starting collector cycle
+2026-04-01T01:25:15.8107840Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:15.8317070Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:15.8327079Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 72
+2026-04-01T01:25:15.8353384Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:17.8410772Z [INFO] Starting collector cycle
+2026-04-01T01:25:19.4613973Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:19.4831450Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:19.4851923Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 73
+2026-04-01T01:25:19.4872405Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:21.5017960Z [INFO] Starting collector cycle
+2026-04-01T01:25:23.0723859Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:23.0903725Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:23.0924474Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 74
+2026-04-01T01:25:23.0944886Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:25.0992889Z [INFO] Starting collector cycle
+2026-04-01T01:25:26.7063096Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:26.7231552Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:26.7251565Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 75
+2026-04-01T01:25:26.7271569Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:28.7355988Z [INFO] Starting collector cycle
+2026-04-01T01:25:30.3862551Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:30.4186858Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:30.4199803Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 76
+2026-04-01T01:25:30.4199803Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:32.4330011Z [INFO] Starting collector cycle
+2026-04-01T01:25:34.0311080Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:34.0541425Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:34.0561698Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 77
+2026-04-01T01:25:34.0582605Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:36.0596801Z [INFO] Starting collector cycle
+2026-04-01T01:25:37.7186254Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:37.7364880Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:37.7385633Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 78
+2026-04-01T01:25:37.7406198Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:39.7506203Z [INFO] Starting collector cycle
+2026-04-01T01:25:41.3397699Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:41.3599650Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:41.3620005Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 79
+2026-04-01T01:25:41.3630242Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:43.3715065Z [INFO] Starting collector cycle
+2026-04-01T01:25:45.0030394Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:45.0267935Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:45.0277940Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 80
+2026-04-01T01:25:45.0298594Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:47.0389219Z [INFO] Starting collector cycle
+2026-04-01T01:25:48.6690540Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:48.6888320Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:48.6908957Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 81
+2026-04-01T01:25:48.6919297Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:50.7089534Z [INFO] Starting collector cycle
+2026-04-01T01:25:52.2160218Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:52.2359083Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:52.2380394Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 82
+2026-04-01T01:25:52.2394153Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:54.2448446Z [INFO] Starting collector cycle
+2026-04-01T01:25:57.2803325Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:25:57.3045742Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:25:57.3056062Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 83
+2026-04-01T01:25:57.3076674Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:25:59.3242216Z [INFO] Starting collector cycle
+2026-04-01T01:26:01.8261613Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:01.8456875Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:01.8466891Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 84
+2026-04-01T01:26:01.8488194Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:03.8531250Z [INFO] Starting collector cycle
+2026-04-01T01:26:05.4431236Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:05.4650118Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:05.4672060Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 85
+2026-04-01T01:26:05.4692261Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:07.4848631Z [INFO] Starting collector cycle
+2026-04-01T01:26:09.1142755Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:09.1327899Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:09.1349035Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 86
+2026-04-01T01:26:09.1369558Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:11.1456944Z [INFO] Starting collector cycle
+2026-04-01T01:26:12.7665073Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:12.7861585Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:12.7881890Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 87
+2026-04-01T01:26:12.7891944Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:14.8003707Z [INFO] Starting collector cycle
+2026-04-01T01:26:16.3856115Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:16.4028793Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:16.4050177Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 88
+2026-04-01T01:26:16.4070984Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:18.4155090Z [INFO] Starting collector cycle
+2026-04-01T01:26:20.0249032Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:20.0460267Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:20.0480537Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 89
+2026-04-01T01:26:20.0510871Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:22.0568505Z [INFO] Starting collector cycle
+2026-04-01T01:26:23.6488141Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:23.6675394Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:23.6695703Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 90
+2026-04-01T01:26:23.6705801Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:25.6840259Z [INFO] Starting collector cycle
+2026-04-01T01:26:27.2545040Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:27.2793302Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:27.2813378Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 91
+2026-04-01T01:26:27.2833490Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:29.2985436Z [INFO] Starting collector cycle
+2026-04-01T01:26:30.8349764Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:30.8568853Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:30.8592190Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 92
+2026-04-01T01:26:30.8605594Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:32.8778052Z [INFO] Starting collector cycle
+2026-04-01T01:26:34.4921074Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:34.5108989Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:34.5129106Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 93
+2026-04-01T01:26:34.5164484Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:36.5275011Z [INFO] Starting collector cycle
+2026-04-01T01:26:38.1563585Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:38.1766925Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:38.1790285Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 94
+2026-04-01T01:26:38.1810449Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:40.1888009Z [INFO] Starting collector cycle
+2026-04-01T01:26:41.7662647Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:41.7846516Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:41.7876590Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 95
+2026-04-01T01:26:41.7905283Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:43.7994252Z [INFO] Starting collector cycle
+2026-04-01T01:26:45.3711600Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:45.3914384Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:45.3924512Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 96
+2026-04-01T01:26:45.3945100Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:47.3978895Z [INFO] Starting collector cycle
+2026-04-01T01:26:49.0093461Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:49.0316545Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:49.0337446Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 97
+2026-04-01T01:26:49.0347417Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:51.0513034Z [INFO] Starting collector cycle
+2026-04-01T01:26:52.6374407Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:52.6597001Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:52.6617002Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 98
+2026-04-01T01:26:52.6637004Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:54.6749651Z [INFO] Starting collector cycle
+2026-04-01T01:26:56.2400543Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:56.2602706Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:56.2622770Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 99
+2026-04-01T01:26:56.2643954Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:26:58.2656390Z [INFO] Starting collector cycle
+2026-04-01T01:26:59.8440408Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:26:59.8636202Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:26:59.8656686Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 100
+2026-04-01T01:26:59.8680691Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:01.8760575Z [INFO] Starting collector cycle
+2026-04-01T01:27:03.4580335Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:27:03.4787301Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:27:03.4807364Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 101
+2026-04-01T01:27:03.4827704Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:05.4923151Z [INFO] Starting collector cycle
+2026-04-01T01:27:07.0503894Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:27:07.0702399Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:27:07.0722565Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 102
+2026-04-01T01:27:07.0732594Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:09.0884124Z [INFO] Starting collector cycle
+2026-04-01T01:27:10.6744468Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:27:10.6928294Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:27:10.6938321Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 103
+2026-04-01T01:27:10.6948373Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:12.7112065Z [INFO] Starting collector cycle
+2026-04-01T01:27:14.2803586Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:27:14.2986990Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:27:14.3007240Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 104
+2026-04-01T01:27:14.3028578Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:16.3133423Z [INFO] Starting collector cycle
+2026-04-01T01:27:17.9474876Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:27:17.9657851Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:27:17.9679468Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 105
+2026-04-01T01:27:17.9699918Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:19.9779513Z [INFO] Starting collector cycle
+2026-04-01T01:27:21.5504090Z [INFO] Sending telemetry attempt 1 to http://127.0.0.1:8011/telemetry
+2026-04-01T01:27:21.5687582Z [INFO] Telemetry POST succeeded for endpoint payload
+2026-04-01T01:27:21.5709493Z [INFO] Sent telemetry for 1a729af9-d048-4900-b9cd-011ce789d46c successfully. Record: 106
+2026-04-01T01:27:21.5730090Z [INFO] Sleeping for 2s before the next cycle
+2026-04-01T01:27:23.5801200Z [INFO] Starting collector cycle

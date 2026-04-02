@@ -1,0 +1,14 @@
+[agent]
+interval_seconds = 300
+log_level = "INFO"
+write_payload_file = ""
+
+[transport]
+enabled = true
+url = "http://127.0.0.1:8001/telemetry"
+timeout_seconds = 10
+insecure_tls = false
+token = ""
+
+[collectors]
+enabled = ["system_info", "hotfixes", "services", "processes", "antivirus"]

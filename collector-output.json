@@ -1,0 +1,3198 @@
+﻿{
+    "schema_version":  "1.0",
+    "processes":  [
+                      {
+                          "name":  "AggregatorHost",
+                          "pid":  4736
+                      },
+                      {
+                          "name":  "amdfendrsr",
+                          "pid":  2928
+                      },
+                      {
+                          "name":  "AMDRSServ",
+                          "pid":  16972
+                      },
+                      {
+                          "name":  "AMDRSSrcExt",
+                          "pid":  8188
+                      },
+                      {
+                          "name":  "AppActions",
+                          "pid":  5880
+                      },
+                      {
+                          "name":  "AppHelperCap",
+                          "pid":  4124
+                      },
+                      {
+                          "name":  "ApplicationFrameHost",
+                          "pid":  18708
+                      },
+                      {
+                          "name":  "atieclxx",
+                          "pid":  23592
+                      },
+                      {
+                          "name":  "atiesrxx",
+                          "pid":  2936
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  1948
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  2924
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  3268
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  4016
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  4904
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  5172
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  6112
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  7448
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  8832
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  9012
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  9104
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  9956
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  10412
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  12236
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  13884
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  15228
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  16464
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  18504
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  19376
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  19440
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  20644
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  20748
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  20780
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  21400
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  21428
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  24392
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  24404
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  24516
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  24936
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  25296
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  25508
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  26560
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  27060
+                      },
+                      {
+                          "name":  "brave",
+                          "pid":  27604
+                      },
+                      {
+                          "name":  "claude",
+                          "pid":  23688
+                      },
+                      {
+                          "name":  "cmd",
+                          "pid":  10852
+                      },
+                      {
+                          "name":  "cmd",
+                          "pid":  11404
+                      },
+                      {
+                          "name":  "cmd",
+                          "pid":  17572
+                      },
+                      {
+                          "name":  "cmd",
+                          "pid":  19892
+                      },
+                      {
+                          "name":  "cncmd",
+                          "pid":  18988
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  416
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  1264
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  5956
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  13016
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  13964
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  16044
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  16132
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  17872
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  20352
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  21088
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  22372
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  22824
+                      },
+                      {
+                          "name":  "Code",
+                          "pid":  25352
+                      },
+                      {
+                          "name":  "CodeSetup-stable-cfbea10c5ffb233ea9177d34726e6056e89913dc",
+                          "pid":  17432
+                      },
+                      {
+                          "name":  "CodeSetup-stable-cfbea10c5ffb233ea9177d34726e6056e89913dc.tmp",
+                          "pid":  22292
+                      },
+                      {
+                          "name":  "codex",
+                          "pid":  20696
+                      },
+                      {
+                          "name":  "Codex",
+                          "pid":  20936
+                      },
+                      {
+                          "name":  "Codex",
+                          "pid":  24192
+                      },
+                      {
+                          "name":  "Codex",
+                          "pid":  24312
+                      },
+                      {
+                          "name":  "Codex",
+                          "pid":  26140
+                      },
+                      {
+                          "name":  "Codex",
+                          "pid":  26984
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  1624
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  2136
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  5176
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  7768
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  8644
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  9960
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  16936
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  18032
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  19752
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  19860
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  19952
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  20392
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  24272
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  24784
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  25264
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  27136
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  27204
+                      },
+                      {
+                          "name":  "conhost",
+                          "pid":  28224
+                      },
+                      {
+                          "name":  "Copilot",
+                          "pid":  6708
+                      },
+                      {
+                          "name":  "CrossDeviceResume",
+                          "pid":  27048
+                      },
+                      {
+                          "name":  "csrss",
+                          "pid":  1088
+                      },
+                      {
+                          "name":  "csrss",
+                          "pid":  16568
+                      },
+                      {
+                          "name":  "ctfmon",
+                          "pid":  17080
+                      },
+                      {
+                          "name":  "DiagsCap",
+                          "pid":  4132
+                      },
+                      {
+                          "name":  "dllhost",
+                          "pid":  5652
+                      },
+                      {
+                          "name":  "dllhost",
+                          "pid":  6316
+                      },
+                      {
+                          "name":  "dwm",
+                          "pid":  17360
+                      },
+                      {
+                          "name":  "esbuild",
+                          "pid":  11500
+                      },
+                      {
+                          "name":  "explorer",
+                          "pid":  13376
+                      },
+                      {
+                          "name":  "FCDBLog",
+                          "pid":  18192
+                      },
+                      {
+                          "name":  "FileCoAuth",
+                          "pid":  2268
+                      },
+                      {
+                          "name":  "FMService64",
+                          "pid":  6420
+                      },
+                      {
+                          "name":  "FMToastNotification",
+                          "pid":  22148
+                      },
+                      {
+                          "name":  "fontdrvhost",
+                          "pid":  1604
+                      },
+                      {
+                          "name":  "fontdrvhost",
+                          "pid":  24284
+                      },
+                      {
+                          "name":  "FortiSettings",
+                          "pid":  8408
+                      },
+                      {
+                          "name":  "FortiSSLVPNdaemon",
+                          "pid":  11092
+                      },
+                      {
+                          "name":  "FortiTray",
+                          "pid":  22304
+                      },
+                      {
+                          "name":  "git",
+                          "pid":  1600
+                      },
+                      {
+                          "name":  "git",
+                          "pid":  2960
+                      },
+                      {
+                          "name":  "git",
+                          "pid":  8692
+                      },
+                      {
+                          "name":  "git",
+                          "pid":  12688
+                      },
+                      {
+                          "name":  "git",
+                          "pid":  21336
+                      },
+                      {
+                          "name":  "HotKeyServiceUWP",
+                          "pid":  5492
+                      },
+                      {
+                          "name":  "HPAudioAnalytics",
+                          "pid":  19360
+                      },
+                      {
+                          "name":  "HPHotkeyNotification",
+                          "pid":  14892
+                      },
+                      {
+                          "name":  "Idle",
+                          "pid":  0
+                      },
+                      {
+                          "name":  "iked",
+                          "pid":  6376
+                      },
+                      {
+                          "name":  "ipsecd",
+                          "pid":  6396
+                      },
+                      {
+                          "name":  "LanWlanWwanSwitchingServiceUWP",
+                          "pid":  7552
+                      },
+                      {
+                          "name":  "lsass",
+                          "pid":  1404
+                      },
+                      {
+                          "name":  "Memory Compression",
+                          "pid":  3748
+                      },
+                      {
+                          "name":  "MicrosoftStartFeedProvider",
+                          "pid":  7992
+                      },
+                      {
+                          "name":  "MpDefenderCoreService",
+                          "pid":  11360
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  5412
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  10360
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  13028
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  13248
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  13272
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  14200
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  14820
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  14928
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  16808
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  17176
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  19976
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  20168
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  20404
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  20772
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  21980
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  23992
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  26492
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  27372
+                      },
+                      {
+                          "name":  "msedgewebview2",
+                          "pid":  28048
+                      },
+                      {
+                          "name":  "MsMpEng",
+                          "pid":  22604
+                      },
+                      {
+                          "name":  "NetworkCap",
+                          "pid":  4156
+                      },
+                      {
+                          "name":  "NisSrv",
+                          "pid":  16672
+                      },
+                      {
+                          "name":  "node",
+                          "pid":  8284
+                      },
+                      {
+                          "name":  "node",
+                          "pid":  13568
+                      },
+                      {
+                          "name":  "Notepad",
+                          "pid":  14448
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  3600
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  12348
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  12920
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  21824
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  24384
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  24532
+                      },
+                      {
+                          "name":  "Notion",
+                          "pid":  25588
+                      },
+                      {
+                          "name":  "ollama",
+                          "pid":  26808
+                      },
+                      {
+                          "name":  "ollama app",
+                          "pid":  22256
+                      },
+                      {
+                          "name":  "OneDrive",
+                          "pid":  15852
+                      },
+                      {
+                          "name":  "OneDrive.Sync.Service",
+                          "pid":  16376
+                      },
+                      {
+                          "name":  "OpenConsole",
+                          "pid":  3816
+                      },
+                      {
+                          "name":  "OpenConsole",
+                          "pid":  21176
+                      },
+                      {
+                          "name":  "OpenConsole",
+                          "pid":  22384
+                      },
+                      {
+                          "name":  "osqueryd",
+                          "pid":  1856
+                      },
+                      {
+                          "name":  "osqueryd",
+                          "pid":  15708
+                      },
+                      {
+                          "name":  "pet",
+                          "pid":  14008
+                      },
+                      {
+                          "name":  "pet",
+                          "pid":  26840
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  5800
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  9156
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  11112
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  16592
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  17012
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  24476
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  25088
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  25156
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  25232
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  25900
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  26072
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  27108
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  28036
+                      },
+                      {
+                          "name":  "powershell",
+                          "pid":  28644
+                      },
+                      {
+                          "name":  "python",
+                          "pid":  11140
+                      },
+                      {
+                          "name":  "python",
+                          "pid":  18552
+                      },
+                      {
+                          "name":  "python",
+                          "pid":  27008
+                      },
+                      {
+                          "name":  "python",
+                          "pid":  27268
+                      },
+                      {
+                          "name":  "python3.13",
+                          "pid":  3152
+                      },
+                      {
+                          "name":  "python3.13",
+                          "pid":  9572
+                      },
+                      {
+                          "name":  "python3.13",
+                          "pid":  14608
+                      },
+                      {
+                          "name":  "python3.13",
+                          "pid":  21716
+                      },
+                      {
+                          "name":  "RadeonSoftware",
+                          "pid":  8268
+                      },
+                      {
+                          "name":  "Registry",
+                          "pid":  272
+                      },
+                      {
+                          "name":  "RtkAudUService64",
+                          "pid":  6524
+                      },
+                      {
+                          "name":  "RtkAudUService64",
+                          "pid":  9480
+                      },
+                      {
+                          "name":  "RtkAudUService64",
+                          "pid":  13592
+                      },
+                      {
+                          "name":  "rundll32",
+                          "pid":  1520
+                      },
+                      {
+                          "name":  "RuntimeBroker",
+                          "pid":  3108
+                      },
+                      {
+                          "name":  "RuntimeBroker",
+                          "pid":  5168
+                      },
+                      {
+                          "name":  "RuntimeBroker",
+                          "pid":  25728
+                      },
+                      {
+                          "name":  "RuntimeBroker",
+                          "pid":  27564
+                      },
+                      {
+                          "name":  "RuntimeBroker",
+                          "pid":  28180
+                      },
+                      {
+                          "name":  "scheduler",
+                          "pid":  6976
+                      },
+                      {
+                          "name":  "SearchFilterHost",
+                          "pid":  22620
+                      },
+                      {
+                          "name":  "SearchHost",
+                          "pid":  26244
+                      },
+                      {
+                          "name":  "SearchIndexer",
+                          "pid":  14720
+                      },
+                      {
+                          "name":  "SearchProtocolHost",
+                          "pid":  4764
+                      },
+                      {
+                          "name":  "SecurityHealthService",
+                          "pid":  14208
+                      },
+                      {
+                          "name":  "SecurityHealthSystray",
+                          "pid":  23216
+                      },
+                      {
+                          "name":  "services",
+                          "pid":  1360
+                      },
+                      {
+                          "name":  "ShellExperienceHost",
+                          "pid":  3924
+                      },
+                      {
+                          "name":  "ShellHost",
+                          "pid":  22120
+                      },
+                      {
+                          "name":  "sihost",
+                          "pid":  9236
+                      },
+                      {
+                          "name":  "smartscreen",
+                          "pid":  6320
+                      },
+                      {
+                          "name":  "smss",
+                          "pid":  844
+                      },
+                      {
+                          "name":  "SNAPOSS64",
+                          "pid":  6456
+                      },
+                      {
+                          "name":  "spoolsv",
+                          "pid":  6024
+                      },
+                      {
+                          "name":  "StartMenuExperienceHost",
+                          "pid":  26736
+                      },
+                      {
+                          "name":  "StoreDesktopExtension",
+                          "pid":  19012
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  1548
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  1720
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  1764
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2028
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2052
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2060
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2112
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2184
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2208
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2220
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2228
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2340
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2404
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2424
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2432
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2536
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2588
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2620
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2636
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2688
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  2948
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  3384
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  3392
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  3424
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  3552
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  3604
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  3980
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4100
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4108
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4140
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4256
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4416
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4500
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4564
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4604
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4768
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4900
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  4988
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5088
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5212
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5284
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5528
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5628
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5636
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5744
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5868
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5916
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5964
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  5980
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  6360
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  6368
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  6384
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  6532
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  6688
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  6776
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  7032
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  7056
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  7424
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  7712
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  8416
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  8448
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9084
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9196
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9248
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9344
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9728
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9732
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  9980
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  10120
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  10160
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  10304
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  11852
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  11856
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  13848
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  14416
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  15324
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  16888
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  16996
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  17896
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  18612
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  18792
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  19256
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  19800
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  20064
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  20656
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  21080
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  21172
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  21684
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  21856
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  22556
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  24092
+                      },
+                      {
+                          "name":  "svchost",
+                          "pid":  25184
+                      },
+                      {
+                          "name":  "SysInfoCap",
+                          "pid":  4164
+                      },
+                      {
+                          "name":  "System",
+                          "pid":  4
+                      },
+                      {
+                          "name":  "SystemSettings",
+                          "pid":  2324
+                      },
+                      {
+                          "name":  "TabTip",
+                          "pid":  4260
+                      },
+                      {
+                          "name":  "taskhostw",
+                          "pid":  11324
+                      },
+                      {
+                          "name":  "taskhostw",
+                          "pid":  24668
+                      },
+                      {
+                          "name":  "TextInputHost",
+                          "pid":  21380
+                      },
+                      {
+                          "name":  "TiWorker",
+                          "pid":  16168
+                      },
+                      {
+                          "name":  "TouchpointAnalyticsClientService",
+                          "pid":  4148
+                      },
+                      {
+                          "name":  "TrustedInstaller",
+                          "pid":  19428
+                      },
+                      {
+                          "name":  "unsecapp",
+                          "pid":  5268
+                      },
+                      {
+                          "name":  "unsecapp",
+                          "pid":  23576
+                      },
+                      {
+                          "name":  "UserOOBEBroker",
+                          "pid":  12768
+                      },
+                      {
+                          "name":  "vmnat",
+                          "pid":  6484
+                      },
+                      {
+                          "name":  "vmnetdhcp",
+                          "pid":  6464
+                      },
+                      {
+                          "name":  "vmware-authd",
+                          "pid":  6440
+                      },
+                      {
+                          "name":  "vmware-tray",
+                          "pid":  21500
+                      },
+                      {
+                          "name":  "vmware-usbarbitrator64",
+                          "pid":  6512
+                      },
+                      {
+                          "name":  "wazuh-agent",
+                          "pid":  18280
+                      },
+                      {
+                          "name":  "WhatsApp.Root",
+                          "pid":  5072
+                      },
+                      {
+                          "name":  "WidgetBoard",
+                          "pid":  6560
+                      },
+                      {
+                          "name":  "WidgetService",
+                          "pid":  27508
+                      },
+                      {
+                          "name":  "WindowsPackageManagerServer",
+                          "pid":  2380
+                      },
+                      {
+                          "name":  "WindowsTerminal",
+                          "pid":  3840
+                      },
+                      {
+                          "name":  "WindowsTerminal",
+                          "pid":  26376
+                      },
+                      {
+                          "name":  "wininit",
+                          "pid":  1236
+                      },
+                      {
+                          "name":  "winlogon",
+                          "pid":  2680
+                      },
+                      {
+                          "name":  "WinStore.App",
+                          "pid":  19172
+                      },
+                      {
+                          "name":  "wlanext",
+                          "pid":  8464
+                      },
+                      {
+                          "name":  "WmiPrvSE",
+                          "pid":  5400
+                      },
+                      {
+                          "name":  "WmiPrvSE",
+                          "pid":  5532
+                      },
+                      {
+                          "name":  "wslservice",
+                          "pid":  6548
+                      },
+                      {
+                          "name":  "WUDFHost",
+                          "pid":  1576
+                      },
+                      {
+                          "name":  "WUDFHost",
+                          "pid":  1824
+                      },
+                      {
+                          "name":  "WUDFHost",
+                          "pid":  1936
+                      },
+                      {
+                          "name":  "XboxPcAppFT",
+                          "pid":  20232
+                      }
+                  ],
+    "collector_type":  "powershell-windows",
+    "hostname":  "ESSAGHIR",
+    "hotfixes":  [
+                     {
+                         "installed_on":  "2026-02-26",
+                         "description":  "Update",
+                         "id":  "KB5066128"
+                     },
+                     {
+                         "installed_on":  "2025-09-01",
+                         "description":  "Update",
+                         "id":  "KB5050575"
+                     },
+                     {
+                         "installed_on":  "2026-02-26",
+                         "description":  "Update",
+                         "id":  "KB5054156"
+                     },
+                     {
+                         "installed_on":  "2025-09-01",
+                         "description":  "Update",
+                         "id":  "KB5065847"
+                     },
+                     {
+                         "installed_on":  "2025-09-01",
+                         "description":  "Update",
+                         "id":  "KB5065848"
+                     },
+                     {
+                         "installed_on":  "2026-03-12",
+                         "description":  "Security Update",
+                         "id":  "KB5079473"
+                     },
+                     {
+                         "installed_on":  "2026-03-12",
+                         "description":  "Security Update",
+                         "id":  "KB5083532"
+                     }
+                 ],
+    "os":  {
+               "name":  "Microsoft Windows 11 Professionnel",
+               "version":  "10.0.26200",
+               "build":  "26200"
+           },
+    "services":  [
+                     {
+                         "status":  "Stopped",
+                         "name":  "AarSvc_16ed5323",
+                         "display_name":  "Agent Activation Runtime_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ADPSvc",
+                         "display_name":  "Service de plateforme de données agrégées",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ALG",
+                         "display_name":  "Service de la passerelle de la couche Application",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "AMD Crash Defender Service",
+                         "display_name":  "AMD Crash Defender Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "AMD External Events Utility",
+                         "display_name":  "AMD External Events Utility",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "AppIDSvc",
+                         "display_name":  "Identité de l’application",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Appinfo",
+                         "display_name":  "Informations d’application",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "AppMgmt",
+                         "display_name":  "Gestion d’applications",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "AppReadiness",
+                         "display_name":  "Préparation des applications",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "AppVClient",
+                         "display_name":  "Microsoft App-V Client",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "AppXSvc",
+                         "display_name":  "Service de déploiement AppX (AppXSVC)",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ApxSvc",
+                         "display_name":  "Service proxy de périphérique audio virtuel Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "AssignedAccessManagerSvc",
+                         "display_name":  "Service AssignedAccessManager",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "AudioEndpointBuilder",
+                         "display_name":  "Générateur de points de terminaison du service Audio Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Audiosrv",
+                         "display_name":  "Audio Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "autotimesvc",
+                         "display_name":  "Heure cellulaire",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "AxInstSV",
+                         "display_name":  "Programme d’installation ActiveX (AxInstSV)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "BcastDVRUserService_16ed5323",
+                         "display_name":  "Service utilisateur de diffusion et GameDVR_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "BDESVC",
+                         "display_name":  "Service de chiffrement de lecteur BitLocker",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "BFE",
+                         "display_name":  "Moteur de filtrage de base",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "BITS",
+                         "display_name":  "Service de transfert intelligent en arrière-plan",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "BluetoothUserService_16ed5323",
+                         "display_name":  "Service de support des utilisateurs du Bluetooth_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "BrokerInfrastructure",
+                         "display_name":  "Service d’infrastructure des tâches en arrière-plan",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "BTAGService",
+                         "display_name":  "Service de passerelle audio Bluetooth",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "BthAvctpSvc",
+                         "display_name":  "Service AVCTP",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "bthserv",
+                         "display_name":  "Service de prise en charge Bluetooth",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "camsvc",
+                         "display_name":  "Service Gestionnaire d’accès aux fonctionnalités",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "CaptureService_16ed5323",
+                         "display_name":  "CaptureService_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "cbdhsvc_16ed5323",
+                         "display_name":  "Service utilisateur du Presse-papiers_16ed5323",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "CDPSvc",
+                         "display_name":  "Service de plateforme des appareils connectés",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "CDPUserSvc_16ed5323",
+                         "display_name":  "Service pour utilisateur de plateforme d’appareils connectés_16ed5323",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "CertPropSvc",
+                         "display_name":  "Propagation du certificat",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ClipSVC",
+                         "display_name":  "Service de licences de client (ClipSVC)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "CloudBackupRestoreSvc_16ed5323",
+                         "display_name":  "Service de restauration et de sauvegarde dans le cloud_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "cloudidsvc",
+                         "display_name":  "Service d’identité de Microsoft Cloud",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "com.docker.service",
+                         "display_name":  "Docker Desktop Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "COMSysApp",
+                         "display_name":  "Application système COM+",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ConsentUxUserSvc_16ed5323",
+                         "display_name":  "Service utilisateur ConsentUX_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "CoreMessagingRegistrar",
+                         "display_name":  "CoreMessaging",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "CredentialEnrollmentManagerUserSvc_16ed5323",
+                         "display_name":  "CredentialEnrollmentManagerUserSvc_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "CryptSvc",
+                         "display_name":  "Services de chiffrement",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "CscService",
+                         "display_name":  "Fichiers hors connexion",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DcomLaunch",
+                         "display_name":  "Lanceur de processus serveur DCOM",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "dcsvc",
+                         "display_name":  "Service de configuration (DC) déclaré",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "defragsvc",
+                         "display_name":  "Optimiser les lecteurs",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DeviceAssociationBrokerSvc_16ed5323",
+                         "display_name":  "DeviceAssociationBroker_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DeviceAssociationService",
+                         "display_name":  "Service d’association de périphérique",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DeviceInstall",
+                         "display_name":  "Service d’installation de périphérique",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DevicePickerUserSvc_16ed5323",
+                         "display_name":  "DevicePicker_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DevicesFlowUserSvc_16ed5323",
+                         "display_name":  "Flux d’appareils_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DevQueryBroker",
+                         "display_name":  "Service Broker de découverte en arrière-plan DevQuery",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Dhcp",
+                         "display_name":  "Client DHCP",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "diagsvc",
+                         "display_name":  "Diagnostic Execution Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DiagTrack",
+                         "display_name":  "Expériences des utilisateurs connectés et télémétrie",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DialogBlockingService",
+                         "display_name":  "DialogBlockingService",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DispBrokerDesktopSvc",
+                         "display_name":  "Service de stratégie d\u0027affichage",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DisplayEnhancementService",
+                         "display_name":  "Service d\u0027amélioration de l\u0027affichage",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DmEnrollmentSvc",
+                         "display_name":  "Service d\u0027inscription de la gestion des périphériques",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "dmwappushservice",
+                         "display_name":  "Service de routage de messages Push du protocole WAP (Wireless Application Protocol) de gestion des appareils",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Dnscache",
+                         "display_name":  "Client DNS",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DoSvc",
+                         "display_name":  "Optimisation de livraison",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "dot3svc",
+                         "display_name":  "Configuration automatique de réseau câblé",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DPS",
+                         "display_name":  "Service de stratégie de diagnostic",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "DsmSvc",
+                         "display_name":  "Gestionnaire d’installation de périphérique",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DsSvc",
+                         "display_name":  "Service de partage des données",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "DusmSvc",
+                         "display_name":  "Consommation des données",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "EapHost",
+                         "display_name":  "Protocole EAP (Extensible Authentication Protocol)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "edgeupdate",
+                         "display_name":  "Microsoft Edge Update Service (edgeupdate)",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "edgeupdatem",
+                         "display_name":  "Microsoft Edge Update Service (edgeupdatem)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "EFS",
+                         "display_name":  "Système de fichiers EFS (Encrypting File System)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "embeddedmode",
+                         "display_name":  "Mode incorporé",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "EntAppSvc",
+                         "display_name":  "Service de gestion des applications d\u0027entreprise",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "EventLog",
+                         "display_name":  "Journal d’événements Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "EventSystem",
+                         "display_name":  "Système d’événement COM+",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "FA_Scheduler",
+                         "display_name":  "FortiClient VPN Service Scheduler",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "fdPHost",
+                         "display_name":  "Hôte du fournisseur de découverte de fonctions",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "FDResPub",
+                         "display_name":  "Publication des ressources de découverte de fonctions",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "fhsvc",
+                         "display_name":  "Service d’historique des fichiers",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "FMAPOService",
+                         "display_name":  "Fortemedia APO Control Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "FontCache",
+                         "display_name":  "Service de cache de police Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "FontCache3.0.0.0",
+                         "display_name":  "Cache de police de Windows Presentation Foundation 3.0.0.0",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "FrameServer",
+                         "display_name":  "Serveur de trame de la Caméra Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "FrameServerMonitor",
+                         "display_name":  "Moniteur de serveur de trame Caméra Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "GameInputSvc",
+                         "display_name":  "GameInput Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "gpsvc",
+                         "display_name":  "Client de stratégie de groupe",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "GraphicsPerfSvc",
+                         "display_name":  "GraphicsPerfSvc",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "hidserv",
+                         "display_name":  "Service du périphérique d’interface utilisateur",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HotKeyServiceUWP",
+                         "display_name":  "HP Hotkey UWP Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HPAppHelperCap",
+                         "display_name":  "HP App Helper HSA Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "hpatchmon",
+                         "display_name":  "Hotpatch Monitoring Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HPAudioAnalytics",
+                         "display_name":  "HP Audio Analytics Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HPDiagsCap",
+                         "display_name":  "HP Diagnostics HSA Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HPNetworkCap",
+                         "display_name":  "HP Network HSA Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HPSysInfoCap",
+                         "display_name":  "HP System Info HSA Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "HpTouchpointAnalyticsService",
+                         "display_name":  "HP Insights Analytics",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "HvHost",
+                         "display_name":  "Service d\u0027hôte HV",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "icssvc",
+                         "display_name":  "Service Point d\u0027accès sans fil mobile Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "iked",
+                         "display_name":  "ShrewSoft IKE Daemon",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "IKEEXT",
+                         "display_name":  "Modules de génération de clés IKE et AuthIP",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "InstallService",
+                         "display_name":  "Installation du service Microsoft Store",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "InventorySvc",
+                         "display_name":  "Service d’Appraisal inventaire et compatibilité",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "iphlpsvc",
+                         "display_name":  "Assistance IP",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "ipsecd",
+                         "display_name":  "ShrewSoft IPSEC Daemon",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "IpxlatCfgSvc",
+                         "display_name":  "Service de configuration de conversion IP",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "KeyIso",
+                         "display_name":  "Isolation de clé CNG",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "KtmRm",
+                         "display_name":  "Service KtmRm pour Distributed Transaction Coordinator",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "LanmanServer",
+                         "display_name":  "Serveur",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "LanmanWorkstation",
+                         "display_name":  "Station de travail",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "LanWlanWwanSwitchingServiceUWP",
+                         "display_name":  "HP LAN/WLAN/WWAN Switching UWP Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "lfsvc",
+                         "display_name":  "Service de géolocalisation",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "LicenseManager",
+                         "display_name":  "Serveur Gestionnaire de licences Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "lltdsvc",
+                         "display_name":  "Mappage de découverte de topologie de la couche de liaison",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "lmhosts",
+                         "display_name":  "Assistance NetBIOS sur TCP/IP",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "LocalKdc",
+                         "display_name":  "Centre local de distribution de clés Kerberos",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "LSM",
+                         "display_name":  "Gestionnaire de session locale",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "LxpSvc",
+                         "display_name":  "Service d\u0027expérience linguistique",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "MapsBroker",
+                         "display_name":  "Gestionnaire des cartes téléchargées",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "McmSvc",
+                         "display_name":  "Service de gestion de la connectivité mobile",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "McpManagementService",
+                         "display_name":  "McpManagementService",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "MDCoreSvc",
+                         "display_name":  "Microsoft Defender Service de base",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "MessagingService_16ed5323",
+                         "display_name":  "MessagingService_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "midisrv",
+                         "display_name":  "Service MIDI de Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "mpssvc",
+                         "display_name":  "Pare-feu Windows Defender",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "MSDTC",
+                         "display_name":  "Coordinateur de transactions distribuées",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "MSiSCSI",
+                         "display_name":  "Service Initiateur iSCSI de Microsoft",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "msiserver",
+                         "display_name":  "Windows Installer",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "MsKeyboardFilter",
+                         "display_name":  "Filtre clavier Microsoft",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "NaturalAuthentication",
+                         "display_name":  "Authentification naturelle",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "NcaSvc",
+                         "display_name":  "Assistant Connectivité réseau",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "NcbService",
+                         "display_name":  "Service Broker pour les connexions réseau",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "NcdAutoSetup",
+                         "display_name":  "Configuration automatique des périphériques connectés au réseau",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "Netlogon",
+                         "display_name":  "Netlogon",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Netman",
+                         "display_name":  "Connexions réseau",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "netprofm",
+                         "display_name":  "Service Liste des réseaux",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "NetSetupSvc",
+                         "display_name":  "Service Configuration du réseau",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "NetTcpPortSharing",
+                         "display_name":  "Service de partage de ports Net.Tcp",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "NgcCtnrSvc",
+                         "display_name":  "Conteneur Microsoft Passport",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "NgcSvc",
+                         "display_name":  "Microsoft Passport",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "NlaSvc",
+                         "display_name":  "Connaissance des emplacements réseau",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "NPSMSvc_16ed5323",
+                         "display_name":  "Lecture en cours du service du Responsable de la session_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "nsi",
+                         "display_name":  "Service Interface du magasin réseau",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "OneSyncSvc_16ed5323",
+                         "display_name":  "Hôte de synchronisation_16ed5323",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "osqueryd",
+                         "display_name":  "osquery daemon service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "P9RdrService_16ed5323",
+                         "display_name":  "P9RdrService_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "PcaSvc",
+                         "display_name":  "Service de l’Assistant Compatibilité des programmes",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PeerDistSvc",
+                         "display_name":  "BranchCache",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "PenService_16ed5323",
+                         "display_name":  "PenService_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "perceptionsimulation",
+                         "display_name":  "Service de simulation de perception Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PerfHost",
+                         "display_name":  "Hôte de DLL de compteur de performance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "PhoneSvc",
+                         "display_name":  "Service téléphonique",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "PimIndexMaintenanceSvc_16ed5323",
+                         "display_name":  "Données de contacts_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "pla",
+                         "display_name":  "Journaux \u0026 alertes de performance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "PlugPlay",
+                         "display_name":  "Plug-and-Play",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "PolicyAgent",
+                         "display_name":  "Agent de stratégie IPsec",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Power",
+                         "display_name":  "Alimentation",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PrintDeviceConfigurationService",
+                         "display_name":  "Service de configuration du périphérique d’impression",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PrintNotify",
+                         "display_name":  "Extensions et notifications d’imprimante",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PrintScanBrokerService",
+                         "display_name":  "PrintScanBrokerService",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PrintWorkflowUserSvc_16ed5323",
+                         "display_name":  "PrintWorkflow_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "ProfSvc",
+                         "display_name":  "Service de profil utilisateur",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "PushToInstall",
+                         "display_name":  "Service PushToInstall de Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "QWAVE",
+                         "display_name":  "Expérience audio-vidéo haute qualité Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "RasAuto",
+                         "display_name":  "Gestionnaire des connexions automatiques d’accès à distance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "RasMan",
+                         "display_name":  "Gestionnaire des connexions d’accès à distance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "refsdedupsvc",
+                         "display_name":  "Service de déduplication ReFS",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "RemoteAccess",
+                         "display_name":  "Routage et accès distant",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "RemoteRegistry",
+                         "display_name":  "Registre à distance",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "RetailDemo",
+                         "display_name":  "Service de démo du magasin",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "RmSvc",
+                         "display_name":  "Service de gestion radio",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "RpcEptMapper",
+                         "display_name":  "Mappeur de point de terminaison RPC",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "RpcLocator",
+                         "display_name":  "Localisateur d’appels de procédure distante (RPC)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "RpcSs",
+                         "display_name":  "Appel de procédure distante (RPC)",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "RtkAudioUniversalService",
+                         "display_name":  "Realtek Audio Universal Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SamSs",
+                         "display_name":  "Gestionnaire de comptes de sécurité",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SCardSvr",
+                         "display_name":  "Carte à puce",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ScDeviceEnum",
+                         "display_name":  "Service d’énumération de périphériques de carte à puce",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Schedule",
+                         "display_name":  "Planificateur de tâches",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SCPolicySvc",
+                         "display_name":  "Stratégie de retrait de la carte à puce",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SDRSVC",
+                         "display_name":  "Sauvegarde Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "seclogon",
+                         "display_name":  "Ouverture de session secondaire",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SecurityHealthService",
+                         "display_name":  "Service Sécurité Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SEMgrSvc",
+                         "display_name":  "Gestionnaires des paiements et des éléments sécurisés NFC",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SENS",
+                         "display_name":  "Service de notification d’événements système",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "Sense",
+                         "display_name":  "Sense",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SensorDataService",
+                         "display_name":  "Service Données de capteur",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SensorService",
+                         "display_name":  "Service de capteur",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SensrSvc",
+                         "display_name":  "Service de surveillance des capteurs",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SessionEnv",
+                         "display_name":  "Configuration des services Bureau à distance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SharedAccess",
+                         "display_name":  "Partage de connexion Internet (ICS)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "ShellHWDetection",
+                         "display_name":  "Détection matériel noyau",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "shpamsvc",
+                         "display_name":  "Shared PC Account Manager",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "smphost",
+                         "display_name":  "SMP de l’Espace de stockages Microsoft",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SmsRouter",
+                         "display_name":  "Service Routeur SMS Microsoft Windows.",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SNAPOService",
+                         "display_name":  "Sonitude APO Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "SNMPTrap",
+                         "display_name":  "Interruption SNMP",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Spooler",
+                         "display_name":  "Spouleur d’impression",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "sppsvc",
+                         "display_name":  "Protection logicielle",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SSDPSRV",
+                         "display_name":  "Découverte SSDP",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "ssh-agent",
+                         "display_name":  "OpenSSH Authentication Agent",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SstpSvc",
+                         "display_name":  "Service SSTP (Secure Socket Tunneling Protocol)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "StateRepository",
+                         "display_name":  "Service State Repository (StateRepository)",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "StiSvc",
+                         "display_name":  "Acquisition d’image Windows (WIA)",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "StorSvc",
+                         "display_name":  "Service de stockage",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "svsvc",
+                         "display_name":  "Vérificateur de points",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "swprv",
+                         "display_name":  "Fournisseur de cliché instantané de logiciel Microsoft",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SysMain",
+                         "display_name":  "SysMain",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "SystemEventsBroker",
+                         "display_name":  "Service Broker des événements système",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "TapiSrv",
+                         "display_name":  "Téléphonie",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "TermService",
+                         "display_name":  "Services Bureau à distance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "TextInputManagementService",
+                         "display_name":  "Service de gestion des entrées de texte",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Themes",
+                         "display_name":  "Thèmes",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "TieringEngineService",
+                         "display_name":  "Gestion des niveaux de stockage",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "TimeBrokerSvc",
+                         "display_name":  "Service Broker pour les événements horaires",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "TokenBroker",
+                         "display_name":  "Gestionnaire de comptes web",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "TrkWks",
+                         "display_name":  "Client de suivi de lien distribué",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "TroubleshootingSvc",
+                         "display_name":  "Service de résolution des problèmes recommandé",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "TrustedInstaller",
+                         "display_name":  "Programme d’installation pour les modules Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "tzautoupdate",
+                         "display_name":  "Programme de mise à jour automatique du fuseau horaire",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "UdkUserSvc_16ed5323",
+                         "display_name":  "Service utilisateur du kit de développement sans station d’accueil_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "UevAgentService",
+                         "display_name":  "Service User Experience Virtualization",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "UmRdpService",
+                         "display_name":  "Redirecteur de port du mode utilisateur des services Bureau à distance",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "UnistoreSvc_16ed5323",
+                         "display_name":  "Stockage des données utilisateur_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "upnphost",
+                         "display_name":  "Hôte de périphérique UPnP",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "UserDataSvc_16ed5323",
+                         "display_name":  "Accès aux données utilisateur_16ed5323",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "UserManager",
+                         "display_name":  "Gestionnaire des utilisateurs",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "UsoSvc",
+                         "display_name":  "Service Orchestrator pour les mises à jour",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "VaultSvc",
+                         "display_name":  "Gestionnaire d’informations d’identification",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vds",
+                         "display_name":  "Disque virtuel",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "VMAuthdService",
+                         "display_name":  "VMware Authorization Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmicguestinterface",
+                         "display_name":  "Interface de services d’invité Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmicheartbeat",
+                         "display_name":  "Service Pulsation Microsoft Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmickvpexchange",
+                         "display_name":  "Service Échange de données Microsoft Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmicrdv",
+                         "display_name":  "Service de virtualisation Bureau à distance Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmicshutdown",
+                         "display_name":  "Service Arrêt de l’invité Microsoft Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmictimesync",
+                         "display_name":  "Service Synchronisation date/heure Microsoft Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmicvmsession",
+                         "display_name":  "Service Hyper-V PowerShell Direct",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "vmicvss",
+                         "display_name":  "Requête du service VSS Hyper-V",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "VMnetDHCP",
+                         "display_name":  "VMware DHCP Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "VMUSBArbService",
+                         "display_name":  "VMware USB Arbitration Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "VMware NAT Service",
+                         "display_name":  "VMware NAT Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "VmwareAutostartService",
+                         "display_name":  "VMware Autostart Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "VSS",
+                         "display_name":  "Cliché instantané des volumes",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "W32Time",
+                         "display_name":  "Temps Windows",
+                         "start_type":  "Disabled"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WaaSMedicSvc",
+                         "display_name":  "WaaSMedicSvc",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WalletService",
+                         "display_name":  "WalletService",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WarpJITSvc",
+                         "display_name":  "Warp JIT Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WazuhSvc",
+                         "display_name":  "Wazuh",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wbengine",
+                         "display_name":  "Service de moteur de sauvegarde en mode bloc",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WbfPolicyService110",
+                         "display_name":  "WbfPolicyService110",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WbioSrvc",
+                         "display_name":  "Service de biométrie Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Wcmsvc",
+                         "display_name":  "Gestionnaire des connexions Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wcncsvc",
+                         "display_name":  "Windows Connect Now - Registre de configuration",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WdiServiceHost",
+                         "display_name":  "Service hôte WDIServiceHost",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WdiSystemHost",
+                         "display_name":  "Hôte système de diagnostics",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WdNisSvc",
+                         "display_name":  "Service d’inspection réseau de l’antivirus Microsoft Defender",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WebClient",
+                         "display_name":  "WebClient",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "webthreatdefsvc",
+                         "display_name":  "Service Web Threat Defense",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "webthreatdefusersvc_16ed5323",
+                         "display_name":  "Service d’utilisateur Web Threat Defense_16ed5323",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "Wecsvc",
+                         "display_name":  "Collecteur d’événements de Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WEPHOSTSVC",
+                         "display_name":  "Service hôte du fournisseur de chiffrement Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wercplsupport",
+                         "display_name":  "Prise en charge du Panneau de configuration Rapports de problèmes",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WerSvc",
+                         "display_name":  "Service de rapport d’erreurs Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WFDSConMgrSvc",
+                         "display_name":  "Service Wi-Fi Direct Service de gestionnaire de connexions",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "whesvc",
+                         "display_name":  "Intégrité de Windows et expériences optimisées",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WiaRpc",
+                         "display_name":  "Événements d’acquisition d’images fixes",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WinDefend",
+                         "display_name":  "Service antivirus Microsoft Defender",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WinHttpAutoProxySvc",
+                         "display_name":  "Service de découverte automatique de Proxy Web pour les services HTTP Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "Winmgmt",
+                         "display_name":  "Infrastructure de gestion Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WinRM",
+                         "display_name":  "Gestion à distance de Windows (Gestion WSM)",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wisvc",
+                         "display_name":  "Service Windows Insider",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WlanSvc",
+                         "display_name":  "Service de configuration automatique WLAN",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wlidsvc",
+                         "display_name":  "Assistant Connexion avec un compte Microsoft",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wlpasvc",
+                         "display_name":  "Service de l’Assistant de profil local",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WManSvc",
+                         "display_name":  "Service de gestion de Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wmiApSrv",
+                         "display_name":  "Carte de performance WMI",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WMPNetworkSvc",
+                         "display_name":  "Service de partage réseau du Lecteur multimédia Windows",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "workfolderssvc",
+                         "display_name":  "Dossiers de travail",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WpcMonSvc",
+                         "display_name":  "Contrôle parental",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "WPDBusEnum",
+                         "display_name":  "Service Énumérateur d’appareil mobile",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WpnService",
+                         "display_name":  "Service du système de notifications Push Windows",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WpnUserService_16ed5323",
+                         "display_name":  "Service utilisateur de notifications Push Windows_16ed5323",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WSAIFabricSvc",
+                         "display_name":  "WSAIFabricSvc",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "wscsvc",
+                         "display_name":  "Centre de sécurité",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WSearch",
+                         "display_name":  "Windows Search",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WSLService",
+                         "display_name":  "WSL Service",
+                         "start_type":  "Automatic"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "wuauserv",
+                         "display_name":  "Windows Update",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "wuqisvc",
+                         "display_name":  "Informations sur l’utilisation et la qualité de Microsoft",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "WwanSvc",
+                         "display_name":  "Service de configuration automatique WWAN",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Running",
+                         "name":  "XblAuthManager",
+                         "display_name":  "Gestionnaire d\u0027authentification Xbox Live",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "XblGameSave",
+                         "display_name":  "Jeu sauvegardé sur Xbox Live",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "XboxGipSvc",
+                         "display_name":  "Xbox Accessory Management Service",
+                         "start_type":  "Manual"
+                     },
+                     {
+                         "status":  "Stopped",
+                         "name":  "XboxNetApiSvc",
+                         "display_name":  "Service de mise en réseau Xbox Live",
+                         "start_type":  "Manual"
+                     }
+                 ],
+    "antivirus_products":  [
+                               {
+                                   "name":  "Windows Defender",
+                                   "identifier":  "windows defender",
+                                   "state":  "397568"
+                               }
+                           ],
+    "endpoint_id":  "1a729af9-d048-4900-b9cd-011ce789d46c",
+    "extras":  {
+
+               },
+    "network":  {
+                    "ipv4":  "192.168.17.1"
+                },
+    "collected_at":  "2026-03-31T01:40:08.8935051Z"
+}

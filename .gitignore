@@ -1,0 +1,9 @@
+.venv/
+.logs/
+.run/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+*.pyo
+*.db

@@ -1,0 +1,4 @@
+{
+  "/endpoints/page": "app/endpoints/page.js",
+  "/policies/page": "app/policies/page.js"
+}
