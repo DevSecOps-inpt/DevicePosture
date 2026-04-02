@@ -5,6 +5,7 @@ import {
   Cable,
   FileClock,
   Gauge,
+  HeartPulse,
   Network,
   Puzzle,
   ScrollText,
@@ -42,6 +43,7 @@ export const navigationGroups: NavigationGroup[] = [
     title: "Monitoring",
     items: [
       { label: "Events / Logs", href: "/events", icon: Activity },
+      { label: "IT Hygiene", href: "/it-hygiene", icon: HeartPulse },
       { label: "Tasks / Jobs", href: "/tasks", icon: FileClock },
       { label: "Alerts / Findings", href: "/alerts", icon: AlertTriangle }
     ]

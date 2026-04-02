@@ -422,7 +422,7 @@ export function PolicyExecutionSection({
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
       <p className="text-sm font-medium text-white">Adapter and execution</p>
       <p className="text-xs text-slate-400">
-        Backend manages FortiGate API calls from the selected adapter profile. No manual API endpoint input is required.
+        Backend manages adapter API calls from the selected profile. No manual API endpoint input is required.
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -483,7 +483,7 @@ export function PolicyExecutionSection({
 
       <div className="rounded-xl border border-border bg-slate-900/40 p-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-slate-200">Execution gate: endpoint IP group membership</p>
+          <p className="text-sm text-slate-200">Execution IP condition: endpoint IP group membership</p>
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"
