@@ -98,6 +98,49 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
     () => endpoint?.latestTelemetry?.raw_payload.antivirus_products ?? [],
     [endpoint]
   );
+  const latestPayload = endpoint?.latestTelemetry?.raw_payload ?? null;
+  const hotfixRows = useMemo(
+    () =>
+      (latestPayload?.hotfixes ?? []).map((item, index) => ({
+        ...item,
+        rowId: `${item.id}-${index}`
+      })),
+    [latestPayload]
+  );
+  const serviceRows = useMemo(
+    () =>
+      (latestPayload?.services ?? []).map((item, index) => ({
+        ...item,
+        rowId: `${item.name}-${index}`
+      })),
+    [latestPayload]
+  );
+  const processRows = useMemo(
+    () =>
+      (latestPayload?.processes ?? []).map((item, index) => ({
+        ...item,
+        rowId: `${item.name}-${item.pid ?? "na"}-${index}`
+      })),
+    [latestPayload]
+  );
+  const additionalPayload = useMemo(() => {
+    if (!latestPayload) {
+      return {};
+    }
+    const {
+      agent: _agent,
+      hotfixes: _hotfixes,
+      services: _services,
+      processes: _processes,
+      antivirus_products: _antivirusProducts,
+      extras,
+      ...rest
+    } = latestPayload as Record<string, unknown>;
+    return {
+      ...(typeof extras === "object" && extras !== null ? (extras as Record<string, unknown>) : {}),
+      ...rest
+    };
+  }, [latestPayload]);
 
   if (!loading && !endpoint) {
     return (
@@ -326,6 +369,166 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
         <Card>
           <CardHeader>
             <div>
+              <CardTitle>Collector runtime configuration</CardTitle>
+              <p className="mt-1 text-sm text-slate-400">Agent config sent by the collector with latest payload.</p>
+            </div>
+          </CardHeader>
+          <CardBody className="grid gap-3 md:grid-cols-2">
+            {[
+              ["Agent name", latestPayload?.agent?.name ?? "Unknown"],
+              [
+                "Interval (s)",
+                latestPayload?.agent?.interval_seconds !== undefined && latestPayload?.agent?.interval_seconds !== null
+                  ? String(latestPayload.agent.interval_seconds)
+                  : "Unknown"
+              ],
+              [
+                "Grace multiplier",
+                latestPayload?.agent?.active_grace_multiplier !== undefined &&
+                latestPayload?.agent?.active_grace_multiplier !== null
+                  ? String(latestPayload.agent.active_grace_multiplier)
+                  : "Unknown"
+              ],
+              [
+                "Transport enabled",
+                latestPayload?.agent?.transport_enabled !== undefined && latestPayload?.agent?.transport_enabled !== null
+                  ? latestPayload.agent.transport_enabled
+                    ? "Yes"
+                    : "No"
+                  : "Unknown"
+              ],
+              [
+                "Enabled collectors",
+                (latestPayload?.agent?.enabled_collectors ?? []).length > 0
+                  ? latestPayload?.agent?.enabled_collectors?.join(", ")
+                  : "Default"
+              ]
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-2xl border border-border bg-slate-950/35 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
+                <p className="mt-2 text-sm text-slate-100">{value}</p>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Additional endpoint info</CardTitle>
+              <p className="mt-1 text-sm text-slate-400">
+                Extra non-core telemetry fields included in the latest payload.
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            {Object.keys(additionalPayload).length === 0 ? (
+              <p className="text-sm text-slate-400">No extra fields reported.</p>
+            ) : (
+              <pre className="max-h-[320px] overflow-auto rounded-xl border border-border bg-slate-950/40 p-3 text-xs text-slate-200">
+                {JSON.stringify(additionalPayload, null, 2)}
+              </pre>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Installed KB hotfixes (all)</CardTitle>
+              <p className="mt-1 text-sm text-slate-400">Complete hotfix list from the latest telemetry payload.</p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <DataTable
+              data={hotfixRows}
+              getRowKey={(item) => item.rowId}
+              columns={[
+                { id: "id", header: "KB", cell: (item) => item.id, sortAccessor: (item) => item.id },
+                {
+                  id: "description",
+                  header: "Description",
+                  cell: (item) => item.description ?? "N/A",
+                  sortAccessor: (item) => item.description ?? ""
+                },
+                {
+                  id: "installed",
+                  header: "Installed on",
+                  cell: (item) => item.installed_on ?? "N/A",
+                  sortAccessor: (item) => item.installed_on ?? ""
+                }
+              ]}
+            />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Installed services (all)</CardTitle>
+              <p className="mt-1 text-sm text-slate-400">Complete services list from the latest telemetry payload.</p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <DataTable
+              data={serviceRows}
+              getRowKey={(item) => item.rowId}
+              columns={[
+                { id: "name", header: "Service", cell: (item) => item.name, sortAccessor: (item) => item.name },
+                {
+                  id: "display_name",
+                  header: "Display name",
+                  cell: (item) => item.display_name ?? "N/A",
+                  sortAccessor: (item) => item.display_name ?? ""
+                },
+                {
+                  id: "status",
+                  header: "Status",
+                  cell: (item) => item.status ?? "Unknown",
+                  sortAccessor: (item) => item.status ?? ""
+                },
+                {
+                  id: "start_type",
+                  header: "Start type",
+                  cell: (item) => item.start_type ?? "Unknown",
+                  sortAccessor: (item) => item.start_type ?? ""
+                }
+              ]}
+            />
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Running processes (all)</CardTitle>
+              <p className="mt-1 text-sm text-slate-400">Complete process list from the latest telemetry payload.</p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <DataTable
+              data={processRows}
+              getRowKey={(item) => item.rowId}
+              columns={[
+                {
+                  id: "pid",
+                  header: "PID",
+                  cell: (item) => (item.pid !== undefined && item.pid !== null ? String(item.pid) : "N/A"),
+                  sortAccessor: (item) => item.pid ?? -1
+                },
+                { id: "name", header: "Process", cell: (item) => item.name, sortAccessor: (item) => item.name }
+              ]}
+            />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
               <CardTitle>Detected antivirus</CardTitle>
               <p className="mt-1 text-sm text-slate-400">Reported by the latest real telemetry payload.</p>
             </div>
@@ -349,7 +552,23 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
             )}
           </CardBody>
         </Card>
+      </div>
 
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Raw telemetry payload (latest)</CardTitle>
+            <p className="mt-1 text-sm text-slate-400">Full JSON received from the collector for this endpoint.</p>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <pre className="max-h-[500px] overflow-auto rounded-xl border border-border bg-slate-950/40 p-3 text-xs text-slate-200">
+            {JSON.stringify(endpoint?.latestTelemetry?.raw_payload ?? {}, null, 2)}
+          </pre>
+        </CardBody>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card>
           <CardHeader>
             <div>
