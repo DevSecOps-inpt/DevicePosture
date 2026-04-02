@@ -9,6 +9,7 @@ export type NumericOperator =
   | "less than or equal";
 export type GroupAction = "none" | "add" | "remove";
 export type AdapterAction = "none" | "push_group";
+export type ExecutionIpGroupOperator = "exists in" | "does not exist in";
 
 export const MEMBERSHIP_OPERATORS: MembershipOperator[] = ["exists in", "does not exist in"];
 export const NUMERIC_OPERATORS: NumericOperator[] = [
@@ -74,6 +75,9 @@ export type PolicyEditorState = {
     objectOnNonCompliant: GroupAction;
     adapterOnCompliant: AdapterAction;
     adapterOnNonCompliant: AdapterAction;
+    gateEnabled: boolean;
+    gateGroupName: string;
+    gateOperator: ExecutionIpGroupOperator;
   };
 };
 
@@ -111,7 +115,10 @@ export function defaultPolicyEditorState(): PolicyEditorState {
       objectOnCompliant: "remove",
       objectOnNonCompliant: "add",
       adapterOnCompliant: "none",
-      adapterOnNonCompliant: "push_group"
+      adapterOnNonCompliant: "push_group",
+      gateEnabled: false,
+      gateGroupName: "",
+      gateOperator: "exists in"
     }
   };
 }
@@ -321,6 +328,13 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     );
     state.execution.adapterOnCompliant = resolveAdapterAction(onCompliant);
     state.execution.adapterOnNonCompliant = resolveAdapterAction(onNonCompliant);
+    const gate = execution.execution_gate?.ip_group_condition;
+    if (gate) {
+      state.execution.gateEnabled = Boolean(gate.enabled);
+      state.execution.gateGroupName = String(gate.group_name ?? "");
+      state.execution.gateOperator =
+        gate.operator === "does not exist in" ? "does not exist in" : "exists in";
+    }
   }
 
   return state;
@@ -456,6 +470,16 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
     adapter: state.execution.adapter.trim() || "fortigate",
     adapter_profile: state.execution.adapterProfile.trim() || null,
     object_group: objectGroup || null,
+    execution_gate:
+      state.execution.gateEnabled && state.execution.gateGroupName.trim()
+        ? {
+            ip_group_condition: {
+              enabled: true,
+              group_name: state.execution.gateGroupName.trim(),
+              operator: state.execution.gateOperator
+            }
+          }
+        : null,
     on_compliant: onCompliant,
     on_non_compliant: onNonCompliant
   };

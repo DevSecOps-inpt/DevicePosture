@@ -10,10 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast-provider";
-import { formatDateTime, relativeTime } from "@/lib/utils";
+import { formatDateTime, relativeTime, relativeTimeFromSeconds } from "@/lib/utils";
 
 export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
   const router = useRouter();
@@ -23,7 +24,10 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryRecordResponse[]>([]);
   const [decisionHistory, setDecisionHistory] = useState<ComplianceDecision[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
+  const [policies, setPolicies] = useState<Policy[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
+  const [assignmentPolicyId, setAssignmentPolicyId] = useState<number | null>(null);
 
   const loadData = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) {
@@ -37,7 +41,7 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
         return;
       }
 
-      const [latestTelemetry, latestDecision, resolvedPolicy, latestEnforcement, telemetry, decisions, events] =
+      const [latestTelemetry, latestDecision, resolvedPolicy, latestEnforcement, telemetry, decisions, events, policyItems] =
         await Promise.all([
           api.getLatestTelemetry(endpointId).catch(() => null),
           api.getLatestDecision(endpointId).catch(() => null),
@@ -45,7 +49,8 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
           api.getLatestEnforcement(endpointId).catch(() => null),
           api.getTelemetryHistory(endpointId).catch(() => []),
           api.getDecisionHistory(endpointId).catch(() => []),
-          api.listAuditEvents().catch(() => [])
+          api.listAuditEvents().catch(() => []),
+          api.listPolicies().catch(() => [])
         ]);
 
       setEndpoint(
@@ -60,6 +65,10 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
       setTelemetryHistory(telemetry);
       setDecisionHistory(decisions);
       setPolicy(resolvedPolicy);
+      setPolicies(policyItems);
+      if (policyItems.length > 0 && assignmentPolicyId === null) {
+        setAssignmentPolicyId(policyItems[0].id);
+      }
       setAuditEvents(events.filter((event) => event.endpoint_id === endpointId));
     } catch (error) {
       if (!silent) {
@@ -114,6 +123,13 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
             <Button variant="ghost" onClick={() => router.push("/endpoints")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to list
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setAssignmentModalOpen(true)}
+              disabled={loading || policies.length === 0}
+            >
+              Assign policy
             </Button>
             <Button
               variant="secondary"
@@ -178,7 +194,14 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
                 ["IP address", endpoint?.ipAddress ?? "Unavailable"],
                 ["OS", endpoint?.osType ?? "Unavailable"],
                 ["OS build", endpoint?.osBuild ?? "Unavailable"],
-                ["Last seen", endpoint ? relativeTime(endpoint.lastSeen) : "Unavailable"],
+                [
+                  "Last seen",
+                  endpoint
+                    ? endpoint.secondsSinceSeen !== null && endpoint.secondsSinceSeen !== undefined
+                      ? relativeTimeFromSeconds(endpoint.secondsSinceSeen)
+                      : relativeTime(endpoint.lastSeen)
+                    : "Unavailable"
+                ],
                 ["Last collected", endpoint?.lastCollectedAt ? formatDateTime(endpoint.lastCollectedAt) : "Unavailable"],
                 [
                   "Expected cadence",
@@ -346,6 +369,65 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
           </CardBody>
         </Card>
       </div>
+
+      <Modal
+        open={assignmentModalOpen}
+        title="Assign policy to endpoint"
+        description="Select one of the existing policies. The newest endpoint assignment becomes effective."
+        onClose={() => setAssignmentModalOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAssignmentModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={assignmentPolicyId === null}
+              onClick={async () => {
+                if (assignmentPolicyId === null) {
+                  return;
+                }
+                try {
+                  await api.createAssignment(assignmentPolicyId, {
+                    assignment_type: "endpoint",
+                    assignment_value: endpointId
+                  });
+                  pushToast({ tone: "success", title: "Policy assigned to endpoint" });
+                  setAssignmentModalOpen(false);
+                  await loadData();
+                } catch (error) {
+                  pushToast({
+                    tone: "error",
+                    title: "Failed to assign policy",
+                    description: error instanceof Error ? error.message : "Unknown error"
+                  });
+                }
+              }}
+            >
+              Assign policy
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-4">
+          <label className="space-y-2">
+            <span className="text-sm text-slate-300">Available policies</span>
+            <select
+              value={assignmentPolicyId === null ? "" : String(assignmentPolicyId)}
+              onChange={(event) =>
+                setAssignmentPolicyId(event.target.value ? Number(event.target.value) : null)
+              }
+              className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
+            >
+              {policies.length === 0 ? <option value="">No policies available</option> : null}
+              {policies.map((item) => (
+                <option key={item.id} value={String(item.id)}>
+                  {item.name} ({item.policy_scope === "lifecycle" ? "lifecycle" : "posture"})
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Modal>
     </div>
   );
 }

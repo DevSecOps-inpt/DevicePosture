@@ -8,7 +8,7 @@
   },
   "transport": {
     "enabled": true,
-    "url": "http://127.0.0.1:8011/telemetry",
+    "url": "http://192.168.245.160:8011/telemetry",
     "timeout_seconds": 10,
     "retry_count": 3,
     "bearer_token": "",

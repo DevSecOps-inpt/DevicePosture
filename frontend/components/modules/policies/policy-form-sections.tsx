@@ -21,6 +21,7 @@ type PolicyFormSectionsProps = {
   onChange: Dispatch<SetStateAction<PolicyEditorState>>;
   conditionGroups?: ConditionGroup[];
   adapterProfiles?: AdapterConfig[];
+  ipGroups?: Array<{ name: string }>;
 };
 
 function updateConditions(
@@ -414,7 +415,8 @@ function AdapterActionSelect({
 export function PolicyExecutionSection({
   value,
   onChange,
-  adapterProfiles = []
+  adapterProfiles = [],
+  ipGroups = []
 }: PolicyFormSectionsProps) {
   return (
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
@@ -477,6 +479,60 @@ export function PolicyExecutionSection({
           value={value.execution.adapterOnNonCompliant}
           onChange={(next) => updateExecution(onChange, { adapterOnNonCompliant: next })}
         />
+      </div>
+
+      <div className="rounded-xl border border-border bg-slate-900/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-slate-200">Execution gate: endpoint IP group membership</p>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={value.execution.gateEnabled}
+              onChange={(event) => updateExecution(onChange, { gateEnabled: event.target.checked })}
+            />
+            Enabled
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          This gate controls whether policy actions run. It does not affect compliance checks.
+        </p>
+        <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
+          <select
+            value={value.execution.gateOperator}
+            onChange={(event) =>
+              updateExecution(onChange, {
+                gateOperator: event.target.value as PolicyEditorState["execution"]["gateOperator"]
+              })
+            }
+            disabled={!value.execution.gateEnabled}
+            className={inputClassName}
+          >
+            <option value="exists in">exists in</option>
+            <option value="does not exist in">does not exist in</option>
+          </select>
+          <div className="grid gap-2">
+            <select
+              value={value.execution.gateGroupName}
+              onChange={(event) => updateExecution(onChange, { gateGroupName: event.target.value })}
+              disabled={!value.execution.gateEnabled}
+              className={inputClassName}
+            >
+              <option value="">Select an IP group</option>
+              {ipGroups.map((group) => (
+                <option key={group.name} value={group.name}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+            <input
+              value={value.execution.gateGroupName}
+              onChange={(event) => updateExecution(onChange, { gateGroupName: event.target.value })}
+              disabled={!value.execution.gateEnabled}
+              placeholder="Or enter IP group name manually"
+              className={inputClassName}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

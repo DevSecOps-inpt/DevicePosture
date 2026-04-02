@@ -233,6 +233,51 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
         "object_group": default_group_name or "",
     }
 
+    execution_gate = plan.get("execution_gate") if isinstance(plan, dict) else None
+    if isinstance(execution_gate, dict):
+        ip_group_condition = execution_gate.get("ip_group_condition")
+        if isinstance(ip_group_condition, dict) and ip_group_condition.get("enabled"):
+            gate_group_name = str(ip_group_condition.get("group_name") or "").strip()
+            gate_operator = str(ip_group_condition.get("operator") or "exists in").strip().lower()
+
+            if not gate_group_name:
+                payload = {
+                    "action_type": "execution_gate.ip_group",
+                    "status": "skipped",
+                    "message": "Execution gate is enabled but group_name is missing",
+                }
+                store_audit_event(db, "endpoint.policy_action.skipped", decision.endpoint_id, payload)
+                return [payload]
+
+            in_group = False
+            group = find_group_by_name(db, gate_group_name)
+            if group is not None and decision.endpoint_ip:
+                ip_object = find_ip_host_object(db, decision.endpoint_ip)
+                if ip_object is not None:
+                    membership = db.scalar(
+                        select(IpGroupMemberModel).where(
+                            IpGroupMemberModel.group_ref == group.id,
+                            IpGroupMemberModel.object_ref == ip_object.id,
+                        )
+                    )
+                    in_group = membership is not None
+
+            gate_passed = in_group
+            if gate_operator in {"does not exist in", "does_not_exist_in", "not_in"}:
+                gate_passed = not in_group
+
+            if not gate_passed:
+                payload = {
+                    "action_type": "execution_gate.ip_group",
+                    "status": "skipped",
+                    "group_name": gate_group_name,
+                    "operator": gate_operator,
+                    "endpoint_ip": decision.endpoint_ip,
+                    "message": "Execution gate condition did not match. Policy actions were skipped.",
+                }
+                store_audit_event(db, "endpoint.policy_action.skipped", decision.endpoint_id, payload)
+                return [payload]
+
     results: list[dict] = []
 
     for raw_action in actions:

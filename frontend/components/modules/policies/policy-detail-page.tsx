@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Copy, Save, ToggleLeft, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AdapterConfig, ConditionGroup, Policy, PolicyAssignment } from "@/types/platform";
+import type {
+  AdapterConfig,
+  ConditionGroup,
+  EndpointSummary,
+  IpGroup,
+  Policy,
+  PolicyAssignment
+} from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -34,29 +41,44 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [assignments, setAssignments] = useState<PolicyAssignment[]>([]);
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
-  const [assignmentDraft, setAssignmentDraft] = useState({
-    assignment_type: "endpoint" as "endpoint" | "group" | "default",
-    assignment_value: ""
-  });
+  const [endpointOptions, setEndpointOptions] = useState<EndpointSummary[]>([]);
+  const [assignmentEndpointId, setAssignmentEndpointId] = useState("");
   const [formState, setFormState] = useState<PolicyEditorState>(defaultPolicyEditorState());
   const [conditionGroups, setConditionGroups] = useState<ConditionGroup[]>([]);
   const [adapterProfiles, setAdapterProfiles] = useState<AdapterConfig[]>([]);
+  const [ipGroups, setIpGroups] = useState<IpGroup[]>([]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [loadedPolicy, loadedAssignments] = await Promise.all([
+      const [loadedPolicy, loadedAssignments, endpoints] = await Promise.all([
         api.getPolicy(id),
-        api.listAssignments(id).catch(() => [])
+        api.listAssignments(id).catch(() => []),
+        api.listEndpoints().catch(() => [])
       ]);
-      const [groups, adapters] = await Promise.all([
+      const [groups, adapters, groupsForExecutionGate] = await Promise.all([
         api.listConditionGroups().catch(() => []),
-        api.listAdapterConfigs().catch(() => [])
+        api.listAdapterConfigs().catch(() => []),
+        api.listIpGroups().catch(() => [])
       ]);
       setPolicy(loadedPolicy);
       setAssignments(loadedAssignments);
+      setEndpointOptions(endpoints);
+      if (!assignmentEndpointId && endpoints.length > 0) {
+        setAssignmentEndpointId(endpoints[0].endpoint_id);
+      }
       setConditionGroups(groups);
       setAdapterProfiles(adapters);
+      setIpGroups(
+        groupsForExecutionGate.map((group) => ({
+          id: group.group_id,
+          name: group.name,
+          description: group.description,
+          memberObjectIds: group.member_object_ids,
+          createdAt: group.created_at,
+          updatedAt: group.updated_at
+        }))
+      );
       setFormState(policyToEditorState(loadedPolicy));
     } catch (error) {
       pushToast({
@@ -260,6 +282,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
               value={formState}
               onChange={setFormState}
               adapterProfiles={adapterProfiles}
+              ipGroups={ipGroups}
             />
           </CardBody>
         </Card>
@@ -287,8 +310,12 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
                   <p className="mt-2 text-sm text-slate-100">{policy.conditions.length}</p>
                 </div>
                 <div className="flex gap-3">
-                  <Button variant="secondary" onClick={() => setAssignmentModalOpen(true)}>
-                    Add assignment
+                  <Button
+                    variant="secondary"
+                    onClick={() => setAssignmentModalOpen(true)}
+                    disabled={endpointOptions.length === 0}
+                  >
+                    Assign endpoint
                   </Button>
                   <Button
                     variant="danger"
@@ -340,7 +367,17 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
               {
                 id: "value",
                 header: "Assignment value",
-                cell: (assignment) => assignment.assignment_value,
+                cell: (assignment) => {
+                  if (assignment.assignment_type !== "endpoint") {
+                    return assignment.assignment_value;
+                  }
+                  const endpoint = endpointOptions.find(
+                    (item) => item.endpoint_id === assignment.assignment_value
+                  );
+                  return endpoint
+                    ? `${endpoint.hostname} (${endpoint.endpoint_id})`
+                    : assignment.assignment_value;
+                },
                 sortAccessor: (assignment) => assignment.assignment_value
               }
             ]}
@@ -350,8 +387,8 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
 
       <Modal
         open={assignmentModalOpen}
-        title="Create assignment"
-        description="Attach this policy to an endpoint, group, or default scope."
+        title="Assign endpoint"
+        description="Select an available endpoint and attach this policy."
         onClose={() => setAssignmentModalOpen(false)}
         footer={
           <>
@@ -362,55 +399,42 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
               onClick={async () => {
                 if (!policy) return;
                 try {
-                  await api.createAssignment(policy.id, assignmentDraft);
-                  pushToast({ tone: "success", title: "Assignment created" });
+                  await api.createAssignment(policy.id, {
+                    assignment_type: "endpoint",
+                    assignment_value: assignmentEndpointId
+                  });
+                  pushToast({ tone: "success", title: "Endpoint assigned" });
                   setAssignmentModalOpen(false);
-                  setAssignmentDraft({ assignment_type: "endpoint", assignment_value: "" });
                   setAssignments(await api.listAssignments(policy.id));
                 } catch (error) {
                   pushToast({
                     tone: "error",
-                    title: "Failed to create assignment",
+                    title: "Failed to assign endpoint",
                     description: error instanceof Error ? error.message : "Unknown error"
                   });
                 }
               }}
-              disabled={assignmentDraft.assignment_type !== "default" && !assignmentDraft.assignment_value.trim()}
+              disabled={!assignmentEndpointId}
             >
-              Save assignment
+              Assign endpoint
             </Button>
           </>
         }
       >
         <div className="grid gap-4">
           <label className="space-y-2">
-            <span className="text-sm text-slate-300">Assignment type</span>
+            <span className="text-sm text-slate-300">Available endpoints</span>
             <select
-              value={assignmentDraft.assignment_type}
-              onChange={(event) =>
-                setAssignmentDraft((current) => ({
-                  ...current,
-                  assignment_type: event.target.value as "endpoint" | "group" | "default",
-                  assignment_value: event.target.value === "default" ? "default" : current.assignment_value
-                }))
-              }
+              value={assignmentEndpointId}
+              onChange={(event) => setAssignmentEndpointId(event.target.value)}
               className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
             >
-              <option value="endpoint">endpoint</option>
-              <option value="group">group</option>
-              <option value="default">default</option>
+              {endpointOptions.map((endpoint) => (
+                <option key={endpoint.endpoint_id} value={endpoint.endpoint_id}>
+                  {endpoint.hostname} ({endpoint.endpoint_id})
+                </option>
+              ))}
             </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm text-slate-300">Assignment value</span>
-            <input
-              value={assignmentDraft.assignment_type === "default" ? "default" : assignmentDraft.assignment_value}
-              disabled={assignmentDraft.assignment_type === "default"}
-              onChange={(event) =>
-                setAssignmentDraft((current) => ({ ...current, assignment_value: event.target.value }))
-              }
-              className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none disabled:opacity-50 focus:border-teal-500"
-            />
           </label>
         </div>
       </Modal>

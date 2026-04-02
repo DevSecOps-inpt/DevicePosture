@@ -14,7 +14,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast-provider";
-import { relativeTime } from "@/lib/utils";
+import { relativeTime, relativeTimeFromSeconds } from "@/lib/utils";
 
 export function EndpointsPage() {
   const router = useRouter();
@@ -94,7 +94,7 @@ export function EndpointsPage() {
       endpoint.endpointId.toLowerCase().includes(search.toLowerCase()) ||
       (endpoint.ipAddress ?? "").includes(search);
 
-    const matchesStatus = statusFilter === "all" || endpoint.status === statusFilter;
+    const matchesStatus = statusFilter === "all" || endpoint.activityStatus === statusFilter;
     const matchesOs = osFilter === "all" || endpoint.osType === osFilter;
     const matchesPolicy = policyFilter === "all" || endpoint.policyName === policyFilter;
 
@@ -165,9 +165,7 @@ export function EndpointsPage() {
             onChange: setStatusFilter,
             options: [
               { label: "All statuses", value: "all" },
-              { label: "Healthy", value: "healthy" },
-              { label: "Warning", value: "warning" },
-              { label: "Critical", value: "critical" },
+              { label: "Active", value: "active" },
               { label: "Inactive", value: "inactive" },
               { label: "Unknown", value: "unknown" }
             ]
@@ -238,12 +236,6 @@ export function EndpointsPage() {
                 {
                   id: "status",
                   header: "Status",
-                  cell: (endpoint) => <StatusBadge value={endpoint.status} />,
-                  sortAccessor: (endpoint) => endpoint.status
-                },
-                {
-                  id: "activity",
-                  header: "Heartbeat",
                   cell: (endpoint) => <StatusBadge value={endpoint.activityStatus} />,
                   sortAccessor: (endpoint) => endpoint.activityStatus
                 },
@@ -262,7 +254,10 @@ export function EndpointsPage() {
                 {
                   id: "lastSeen",
                   header: "Last seen",
-                  cell: (endpoint) => relativeTime(endpoint.lastSeen),
+                  cell: (endpoint) =>
+                    endpoint.secondsSinceSeen !== null && endpoint.secondsSinceSeen !== undefined
+                      ? relativeTimeFromSeconds(endpoint.secondsSinceSeen)
+                      : relativeTime(endpoint.lastSeen),
                   sortAccessor: (endpoint) => endpoint.lastSeen
                 },
                 {
@@ -277,12 +272,6 @@ export function EndpointsPage() {
                   header: "Assigned policy",
                   cell: (endpoint) => endpoint.policyName ?? "Unassigned",
                   sortAccessor: (endpoint) => endpoint.policyName ?? ""
-                },
-                {
-                  id: "health",
-                  header: "Health score",
-                  cell: (endpoint) => (endpoint.healthScore !== null ? endpoint.healthScore : "Pending evaluation"),
-                  sortAccessor: (endpoint) => endpoint.healthScore ?? -1
                 }
               ]}
             />

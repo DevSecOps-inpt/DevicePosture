@@ -36,3 +36,26 @@ export function relativeTime(value: string) {
 
   return formatter.format(Math.round(hours / 24), "day");
 }
+
+export function relativeTimeFromSeconds(secondsSince: number | null | undefined) {
+  if (secondsSince === null || secondsSince === undefined || Number.isNaN(secondsSince)) {
+    return "Unavailable";
+  }
+
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  if (secondsSince < 60) {
+    return formatter.format(-Math.round(secondsSince), "second");
+  }
+
+  const minutes = Math.round(secondsSince / 60);
+  if (minutes < 60) {
+    return formatter.format(-minutes, "minute");
+  }
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return formatter.format(-hours, "hour");
+  }
+
+  return formatter.format(-Math.round(hours / 24), "day");
+}

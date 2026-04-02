@@ -20,6 +20,9 @@ def build_execution_plan(policy: PosturePolicy | None, compliant: bool) -> dict:
         "adapter_profile": policy.execution.adapter_profile,
         "object_group": policy.execution.object_group,
         "actions": enabled_actions,
+        "execution_gate": policy.execution.execution_gate.model_dump(mode="json")
+        if policy.execution.execution_gate
+        else None,
     }
 
 

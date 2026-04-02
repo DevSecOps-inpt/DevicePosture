@@ -39,12 +39,23 @@ class PolicyExecutionAction(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class PolicyExecutionIpGroupCondition(BaseModel):
+    enabled: bool = False
+    group_name: str | None = None
+    operator: Literal["exists in", "does not exist in"] = "exists in"
+
+
+class PolicyExecutionGate(BaseModel):
+    ip_group_condition: PolicyExecutionIpGroupCondition | None = None
+
+
 class PolicyExecutionConfig(BaseModel):
     adapter: str = "fortigate"
     adapter_profile: str | None = None
     object_group: str | None = None
     on_compliant: list[PolicyExecutionAction] = Field(default_factory=list)
     on_non_compliant: list[PolicyExecutionAction] = Field(default_factory=list)
+    execution_gate: PolicyExecutionGate | None = None
 
 
 class PosturePolicy(BaseModel):

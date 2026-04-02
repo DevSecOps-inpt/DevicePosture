@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, RefreshCcw } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AdapterConfig, ConditionGroup, Policy } from "@/types/platform";
+import type { AdapterConfig, ConditionGroup, IpGroup, Policy } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -37,18 +37,30 @@ export function PoliciesPage() {
   const [draft, setDraft] = useState<PolicyEditorState>(defaultPolicyEditorState());
   const [conditionGroups, setConditionGroups] = useState<ConditionGroup[]>([]);
   const [adapterProfiles, setAdapterProfiles] = useState<AdapterConfig[]>([]);
+  const [ipGroups, setIpGroups] = useState<IpGroup[]>([]);
 
   const loadPolicies = async () => {
     setLoading(true);
     try {
-      const [policies, groups, adapters] = await Promise.all([
+      const [policies, groups, adapters, groupsForExecutionGate] = await Promise.all([
         api.listPolicies(),
         api.listConditionGroups().catch(() => []),
-        api.listAdapterConfigs().catch(() => [])
+        api.listAdapterConfigs().catch(() => []),
+        api.listIpGroups().catch(() => [])
       ]);
       setItems(policies);
       setConditionGroups(groups);
       setAdapterProfiles(adapters);
+      setIpGroups(
+        groupsForExecutionGate.map((group) => ({
+          id: group.group_id,
+          name: group.name,
+          description: group.description,
+          memberObjectIds: group.member_object_ids,
+          createdAt: group.created_at,
+          updatedAt: group.updated_at
+        }))
+      );
     } catch (error) {
       pushToast({
         tone: "error",
@@ -283,6 +295,7 @@ export function PoliciesPage() {
             value={draft}
             onChange={setDraft}
             adapterProfiles={adapterProfiles}
+            ipGroups={ipGroups}
           />
         </div>
       </Modal>

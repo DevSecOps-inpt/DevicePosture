@@ -77,6 +77,13 @@ export interface Policy {
     adapter?: string;
     adapter_profile?: string | null;
     object_group?: string | null;
+    execution_gate?: {
+      ip_group_condition?: {
+        enabled?: boolean;
+        group_name?: string | null;
+        operator?: "exists in" | "does not exist in";
+      } | null;
+    } | null;
     on_compliant?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
     on_non_compliant?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
   } | null;
@@ -108,6 +115,13 @@ export interface ComplianceDecision {
     adapter?: string | null;
     adapter_profile?: string | null;
     object_group?: string | null;
+    execution_gate?: {
+      ip_group_condition?: {
+        enabled?: boolean;
+        group_name?: string | null;
+        operator?: "exists in" | "does not exist in";
+      } | null;
+    } | null;
     actions?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
   };
   evaluated_at: string;

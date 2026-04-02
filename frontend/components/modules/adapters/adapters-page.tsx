@@ -11,41 +11,90 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast-provider";
 
+type AdapterType = "fortigate" | "cisco" | "paloalto" | "checkpoint" | "custom";
+
 type ProfileDraft = {
   profileName: string;
+  adapter: AdapterType;
   isActive: boolean;
   baseUrl: string;
   token: string;
-  vdom: string;
-  quarantineGroup: string;
   timeoutSeconds: string;
   retries: string;
+  targetGroup: string;
+  scope: string;
 };
 
-function buildDefaultDraft(profileName = "fortigate-default"): ProfileDraft {
+const ADAPTER_OPTIONS: Array<{ value: AdapterType; label: string }> = [
+  { value: "fortigate", label: "FortiGate" },
+  { value: "cisco", label: "Cisco" },
+  { value: "paloalto", label: "Palo Alto" },
+  { value: "checkpoint", label: "Check Point" },
+  { value: "custom", label: "Custom API" }
+];
+
+function defaultScopeForAdapter(adapter: AdapterType): string {
+  if (adapter === "fortigate") {
+    return "root";
+  }
+  return "";
+}
+
+function buildDefaultDraft(profileName = "adapter-profile-1"): ProfileDraft {
   return {
     profileName,
+    adapter: "fortigate",
     isActive: true,
     baseUrl: "",
     token: "",
-    vdom: "root",
-    quarantineGroup: "NON_COMPLIANT_ENDPOINTS",
     timeoutSeconds: "10",
-    retries: "3"
+    retries: "3",
+    targetGroup: "NON_COMPLIANT_ENDPOINTS",
+    scope: defaultScopeForAdapter("fortigate")
   };
 }
 
 function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
+  const adapter = (profile.adapter as AdapterType) || "custom";
+  const settings = profile.settings ?? {};
   return {
     profileName: profile.name,
+    adapter,
     isActive: profile.is_active,
-    baseUrl: String((profile.settings.base_url as string) ?? ""),
-    token: String((profile.settings.token as string) ?? ""),
-    vdom: String((profile.settings.vdom as string) ?? "root"),
-    quarantineGroup: String((profile.settings.quarantine_group as string) ?? "NON_COMPLIANT_ENDPOINTS"),
-    timeoutSeconds: String((profile.settings.timeout_seconds as number | string) ?? "10"),
-    retries: String((profile.settings.retries as number | string) ?? "3")
+    baseUrl: String((settings.base_url as string) ?? ""),
+    token: String((settings.token as string) ?? ""),
+    timeoutSeconds: String((settings.timeout_seconds as number | string) ?? "10"),
+    retries: String((settings.retries as number | string) ?? "3"),
+    targetGroup: String(
+      (settings.target_group as string) ?? (settings.quarantine_group as string) ?? "NON_COMPLIANT_ENDPOINTS"
+    ),
+    scope: String((settings.scope as string) ?? (settings.vdom as string) ?? defaultScopeForAdapter(adapter))
   };
+}
+
+function scopeLabel(adapter: AdapterType): string {
+  if (adapter === "fortigate") return "Scope (VDOM)";
+  if (adapter === "paloalto") return "Scope (Device group)";
+  if (adapter === "checkpoint") return "Scope (Domain)";
+  return "Scope";
+}
+
+function draftToSettings(draft: ProfileDraft): Record<string, unknown> {
+  const settings: Record<string, unknown> = {
+    base_url: draft.baseUrl.trim(),
+    token: draft.token,
+    timeout_seconds: Number(draft.timeoutSeconds) || 10,
+    retries: Number(draft.retries) || 3,
+    target_group: draft.targetGroup.trim(),
+    scope: draft.scope.trim()
+  };
+
+  // Backward-compatible keys used by FortiGate adapter implementation.
+  if (draft.adapter === "fortigate") {
+    settings.vdom = draft.scope.trim() || "root";
+    settings.quarantine_group = draft.targetGroup.trim();
+  }
+  return settings;
 }
 
 export function AdaptersPage() {
@@ -150,18 +199,13 @@ export function AdaptersPage() {
   const loadData = async (preferredProfileName?: string | null) => {
     setLoading(true);
     try {
-      const [health, adapters] = await Promise.all([
-        api.getServiceHealth(),
-        api.listAdapterConfigs()
-      ]);
+      const [health, adapters] = await Promise.all([api.getServiceHealth(), api.listAdapterConfigs()]);
       setServiceHealth(health);
 
-      const fortigateProfiles = adapters
-        .filter((item) => item.adapter === "fortigate")
-        .sort((a, b) => a.name.localeCompare(b.name));
-      setProfiles(fortigateProfiles);
+      const allProfiles = adapters.sort((a, b) => a.name.localeCompare(b.name));
+      setProfiles(allProfiles);
       const seedHealth = Object.fromEntries(
-        fortigateProfiles.map((profile) => [
+        allProfiles.map((profile) => [
           profile.name,
           {
             name: profile.name,
@@ -176,21 +220,21 @@ export function AdaptersPage() {
       setProfileHealth(seedHealth);
 
       const targetName =
-        preferredProfileName && fortigateProfiles.some((item) => item.name === preferredProfileName)
+        preferredProfileName && allProfiles.some((item) => item.name === preferredProfileName)
           ? preferredProfileName
-          : selectedProfileName && fortigateProfiles.some((item) => item.name === selectedProfileName)
+          : selectedProfileName && allProfiles.some((item) => item.name === selectedProfileName)
             ? selectedProfileName
-            : fortigateProfiles[0]?.name ?? null;
+            : allProfiles[0]?.name ?? null;
 
       setSelectedProfileName(targetName);
 
       if (targetName) {
-        const target = fortigateProfiles.find((item) => item.name === targetName) ?? null;
+        const target = allProfiles.find((item) => item.name === targetName) ?? null;
         setDraft(target ? buildDraftFromProfile(target) : buildDefaultDraft());
       } else {
         setDraft(buildDefaultDraft());
       }
-      void refreshRuntimeHealth({ quiet: true, profilesSnapshot: fortigateProfiles });
+      void refreshRuntimeHealth({ quiet: true, profilesSnapshot: allProfiles });
     } catch (error) {
       pushToast({
         tone: "error",
@@ -215,11 +259,11 @@ export function AdaptersPage() {
 
   const nextProfileName = () => {
     let index = profiles.length + 1;
-    let candidate = `fortigate-profile-${index}`;
+    let candidate = `adapter-profile-${index}`;
     const existing = new Set(profiles.map((item) => item.name));
     while (existing.has(candidate)) {
       index += 1;
-      candidate = `fortigate-profile-${index}`;
+      candidate = `adapter-profile-${index}`;
     }
     return candidate;
   };
@@ -229,7 +273,7 @@ export function AdaptersPage() {
       <PageHeader
         eyebrow="Connectivity"
         title="Adapters"
-        description="Create and manage multiple FortiGate profiles. Health is probed live from the backend against each firewall API."
+        description="Create and manage adapter profiles for FortiGate, Cisco, Palo Alto, Check Point, and custom API targets."
         actions={
           <>
             <Button
@@ -259,9 +303,9 @@ export function AdaptersPage() {
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>FortiGate Profiles</CardTitle>
+            <CardTitle>Adapter profiles</CardTitle>
             <p className="mt-1 text-sm text-slate-400">
-              Select an existing profile to edit it, or create a new one. Policies can reference any saved profile name.
+              Select any existing profile to edit it, or create a new one. Policies can reference profile names.
             </p>
           </div>
           <StatusBadge value={selectedHealth?.status ?? (draft.isActive ? "unknown" : "disabled")} />
@@ -287,7 +331,9 @@ export function AdaptersPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-white">{profile.name}</p>
-                        <p className="text-xs text-slate-400">{String((profile.settings.base_url as string) ?? "No base URL")}</p>
+                        <p className="text-xs text-slate-400">
+                          {profile.adapter} | {String((profile.settings.base_url as string) ?? "No base URL")}
+                        </p>
                       </div>
                       <StatusBadge value={health?.status ?? (profile.is_active ? "unknown" : "disabled")} />
                     </div>
@@ -297,7 +343,7 @@ export function AdaptersPage() {
             </div>
           ) : (
             <div className="rounded-xl border border-border bg-slate-900/50 px-4 py-3 text-sm text-slate-400">
-              No FortiGate profiles yet. Create one with the <span className="text-white">New profile</span> button.
+              No adapter profiles yet. Create one with the <span className="text-white">New profile</span> button.
             </div>
           )}
 
@@ -323,6 +369,27 @@ export function AdaptersPage() {
                 className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
               />
             </label>
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Adapter type</span>
+              <select
+                value={draft.adapter}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    adapter: event.target.value as AdapterType,
+                    scope:
+                      current.scope || defaultScopeForAdapter(event.target.value as AdapterType)
+                  }))
+                }
+                className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
+              >
+                {ADAPTER_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="flex items-center gap-3 rounded-xl border border-border bg-slate-900 px-3 py-2.5">
               <input
                 type="checkbox"
@@ -332,6 +399,7 @@ export function AdaptersPage() {
               <span className="text-sm text-slate-300">Profile active</span>
             </label>
           </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
               <span className="text-sm text-slate-300">Base URL</span>
@@ -352,20 +420,13 @@ export function AdaptersPage() {
               />
             </label>
           </div>
+
           <div className="grid gap-4 md:grid-cols-4">
-            <label className="space-y-2">
-              <span className="text-sm text-slate-300">VDOM</span>
-              <input
-                value={draft.vdom}
-                onChange={(event) => setDraft((current) => ({ ...current, vdom: event.target.value }))}
-                className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
-              />
-            </label>
             <label className="space-y-2 md:col-span-2">
-              <span className="text-sm text-slate-300">Quarantine group</span>
+              <span className="text-sm text-slate-300">Target object group</span>
               <input
-                value={draft.quarantineGroup}
-                onChange={(event) => setDraft((current) => ({ ...current, quarantineGroup: event.target.value }))}
+                value={draft.targetGroup}
+                onChange={(event) => setDraft((current) => ({ ...current, targetGroup: event.target.value }))}
                 className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
               />
             </label>
@@ -377,8 +438,6 @@ export function AdaptersPage() {
                 className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
               />
             </label>
-          </div>
-          <div className="grid gap-4 md:grid-cols-4">
             <label className="space-y-2">
               <span className="text-sm text-slate-300">Retries</span>
               <input
@@ -388,6 +447,18 @@ export function AdaptersPage() {
               />
             </label>
           </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">{scopeLabel(draft.adapter)}</span>
+              <input
+                value={draft.scope}
+                onChange={(event) => setDraft((current) => ({ ...current, scope: event.target.value }))}
+                className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
+              />
+            </label>
+          </div>
+
           <div className="flex justify-end">
             <div className="flex gap-3">
               {selectedProfile ? (
@@ -417,16 +488,9 @@ export function AdaptersPage() {
                   const profileName = draft.profileName.trim();
                   try {
                     await api.upsertAdapterConfig(profileName, {
-                      adapter: "fortigate",
+                      adapter: draft.adapter,
                       is_active: draft.isActive,
-                      settings: {
-                        base_url: draft.baseUrl.trim(),
-                        token: draft.token,
-                        vdom: draft.vdom.trim(),
-                        quarantine_group: draft.quarantineGroup.trim(),
-                        timeout_seconds: Number(draft.timeoutSeconds) || 10,
-                        retries: Number(draft.retries) || 3
-                      }
+                      settings: draftToSettings(draft)
                     });
                     pushToast({ tone: "success", title: `Profile '${profileName}' saved` });
                     await loadData(profileName);
