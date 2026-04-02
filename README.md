@@ -187,6 +187,7 @@ Notes for Linux:
 - the Windows-native PowerShell collector remains Windows-only by design
 - a Linux-native collector is planned, but not implemented yet
 - you can override service URLs or FortiGate settings with environment variables before launching
+- backend services bind to `0.0.0.0` by default in `dev.sh` so they are reachable from browsers on other machines
 
 ## Frontend
 
@@ -219,6 +220,15 @@ On Linux:
 cd ./frontend
 npm install
 npm run dev
+```
+
+If frontend and backend run on the same VM and you open the UI from another machine, keep these env vars aligned with the VM IP:
+
+```bash
+export NEXT_PUBLIC_TELEMETRY_API_URL="http://<VM_IP>:8011"
+export NEXT_PUBLIC_POLICY_SERVICE_URL="http://<VM_IP>:8002"
+export NEXT_PUBLIC_EVALUATION_ENGINE_URL="http://<VM_IP>:8003"
+export NEXT_PUBLIC_ENFORCEMENT_SERVICE_URL="http://<VM_IP>:8004"
 ```
 
 Install the shared package first from the repo root:

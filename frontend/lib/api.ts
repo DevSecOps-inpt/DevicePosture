@@ -15,10 +15,19 @@ import type {
   TelemetryRecordResponse
 } from "@/types/platform";
 
-const TELEMETRY_API_URL = process.env.NEXT_PUBLIC_TELEMETRY_API_URL ?? "http://127.0.0.1:8011";
-const POLICY_SERVICE_URL = process.env.NEXT_PUBLIC_POLICY_SERVICE_URL ?? "http://127.0.0.1:8002";
-const EVALUATION_ENGINE_URL = process.env.NEXT_PUBLIC_EVALUATION_ENGINE_URL ?? "http://127.0.0.1:8003";
-const ENFORCEMENT_SERVICE_URL = process.env.NEXT_PUBLIC_ENFORCEMENT_SERVICE_URL ?? "http://127.0.0.1:8004";
+function defaultServiceUrl(port: number): string {
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname || "127.0.0.1";
+    return `${protocol}//${hostname}:${port}`;
+  }
+  return `http://127.0.0.1:${port}`;
+}
+
+const TELEMETRY_API_URL = process.env.NEXT_PUBLIC_TELEMETRY_API_URL ?? defaultServiceUrl(8011);
+const POLICY_SERVICE_URL = process.env.NEXT_PUBLIC_POLICY_SERVICE_URL ?? defaultServiceUrl(8002);
+const EVALUATION_ENGINE_URL = process.env.NEXT_PUBLIC_EVALUATION_ENGINE_URL ?? defaultServiceUrl(8003);
+const ENFORCEMENT_SERVICE_URL = process.env.NEXT_PUBLIC_ENFORCEMENT_SERVICE_URL ?? defaultServiceUrl(8004);
 
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {

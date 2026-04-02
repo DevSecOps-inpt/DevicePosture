@@ -1,4 +1,17 @@
 {
+  "/_not-found/page": "app/_not-found/page.js",
+  "/adapters/page": "app/adapters/page.js",
+  "/endpoints/[id]/page": "app/endpoints/[id]/page.js",
+  "/adapters/[id]/page": "app/adapters/[id]/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/alerts/page": "app/alerts/page.js",
+  "/events/page": "app/events/page.js",
   "/endpoints/page": "app/endpoints/page.js",
-  "/policies/page": "app/policies/page.js"
+  "/extensions/page": "app/extensions/page.js",
+  "/policies/[id]/page": "app/policies/[id]/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/objects/page": "app/objects/page.js",
+  "/tasks/page": "app/tasks/page.js",
+  "/policies/page": "app/policies/page.js",
+  "/page": "app/page.js"
 }
