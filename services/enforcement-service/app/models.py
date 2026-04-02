@@ -89,3 +89,17 @@ class IpGroupMemberModel(Base):
 
     group: Mapped[IpGroupModel] = relationship(back_populates="members")
     ip_object: Mapped[IpObjectModel] = relationship(back_populates="memberships")
+
+
+class BackgroundJobModel(Base):
+    __tablename__ = "background_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_type: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    endpoint_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_message: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, index=True)

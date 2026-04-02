@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Activity, AlertTriangle, ListChecks, RefreshCcw, ShieldCheck, Workflow } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSmartPolling } from "@/hooks/use-smart-polling";
 import { buildAlertsFromEndpoints, buildEndpointView } from "@/lib/platform-data";
-import type { AuditEvent, EndpointView, ServiceStatus } from "@/types/platform";
+import type { AuditEvent, ComplianceDecision, EnforcementResult, EndpointView, Policy, ServiceStatus } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -36,16 +37,21 @@ export function DashboardOverview() {
         api.getServiceHealth(),
         api.listAuditEvents().catch(() => [])
       ]);
-
-      const endpointViews = await Promise.all(
-        endpointSummaries.map(async (endpoint) => {
-          const [telemetry, decision, policy, enforcement] = await Promise.all([
-            api.getLatestTelemetry(endpoint.endpoint_id).catch(() => null),
-            api.getLatestDecision(endpoint.endpoint_id).catch(() => null),
-            api.resolvePolicy(endpoint.endpoint_id).catch(() => null),
-            api.getLatestEnforcement(endpoint.endpoint_id).catch(() => null)
-          ]);
-          return buildEndpointView({ endpoint, telemetry, policy, decision, enforcement });
+      const endpointIds = endpointSummaries.map((item) => item.endpoint_id);
+      const [telemetryBatch, decisionBatch, policyBatch, enforcementBatch] = await Promise.all([
+        api.getLatestTelemetryBatch(endpointIds, { includeRaw: false }).catch(() => []),
+        api.getLatestDecisionBatch(endpointIds).catch(() => ({} as Record<string, ComplianceDecision | null>)),
+        api.resolvePolicyBatch(endpointIds).catch(() => ({} as Record<string, Policy | null>)),
+        api.getLatestEnforcementBatch(endpointIds).catch(() => ({} as Record<string, EnforcementResult | null>))
+      ]);
+      const telemetryByEndpoint = Object.fromEntries(telemetryBatch.map((item) => [item.endpoint_id, item]));
+      const endpointViews = endpointSummaries.map((endpoint) =>
+        buildEndpointView({
+          endpoint,
+          telemetry: telemetryByEndpoint[endpoint.endpoint_id] ?? null,
+          policy: policyBatch[endpoint.endpoint_id] ?? null,
+          decision: decisionBatch[endpoint.endpoint_id] ?? null,
+          enforcement: enforcementBatch[endpoint.endpoint_id] ?? null
         })
       );
 
@@ -70,12 +76,8 @@ export function DashboardOverview() {
 
   useEffect(() => {
     void loadData();
-    const timer = window.setInterval(() => {
-      void loadData({ silent: true });
-    }, 5000);
-
-    return () => window.clearInterval(timer);
   }, []);
+  useSmartPolling(() => loadData({ silent: true }), { visibleIntervalMs: 10000, hiddenIntervalMs: 60000, runImmediately: false });
 
   const alerts = useMemo(() => buildAlertsFromEndpoints(endpoints), [endpoints]);
   const healthyServices = serviceHealth.filter((service) => service.status === "healthy").length;

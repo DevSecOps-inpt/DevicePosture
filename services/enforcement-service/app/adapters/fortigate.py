@@ -6,6 +6,7 @@ from app.config import (
     FORTIGATE_BASE_URL,
     FORTIGATE_QUARANTINE_GROUP,
     FORTIGATE_TOKEN,
+    FORTIGATE_VERIFY_TLS,
     FORTIGATE_VDOM,
     HTTP_RETRIES,
     HTTP_TIMEOUT_SECONDS,
@@ -20,6 +21,10 @@ class FortiGateAdapter(EnforcementAdapter):
     def __init__(self) -> None:
         self._session = requests.Session()
         self._session.trust_env = False
+        self._consecutive_failures = 0
+        self._opened_until = 0.0
+        self._failure_threshold = 5
+        self._cooldown_seconds = 60
 
     def execute(self, action: EnforcementAction) -> EnforcementResult:
         if action.action not in {"quarantine", "remove_from_group", "sync_group"}:
@@ -123,6 +128,14 @@ class FortiGateAdapter(EnforcementAdapter):
 
     def _request(self, settings: dict, method: str, path: str, payload: dict | None = None) -> requests.Response:
         url = f"{settings['base_url']}{path}?vdom={settings['vdom']}"
+        now = time.time()
+        if self._opened_until > now:
+            raise requests.RequestException(
+                f"FortiGate circuit breaker open until {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(self._opened_until))}"
+            )
+        if self._opened_until and self._opened_until <= now:
+            self._opened_until = 0.0
+            self._consecutive_failures = 0
         headers = {
             "Authorization": f"Bearer {settings['token']}",
             "Content-Type": "application/json",
@@ -138,13 +151,18 @@ class FortiGateAdapter(EnforcementAdapter):
                     json=payload,
                     headers=headers,
                     timeout=settings["timeout"],
-                    verify=False,
+                    verify=FORTIGATE_VERIFY_TLS,
                 )
                 if response.status_code >= 400:
                     response.raise_for_status()
+                self._consecutive_failures = 0
+                self._opened_until = 0.0
                 return response
             except requests.RequestException as exc:
                 last_error = exc
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self._failure_threshold:
+                    self._opened_until = time.time() + self._cooldown_seconds
                 if attempt == settings["retries"]:
                     raise
                 time.sleep(attempt)

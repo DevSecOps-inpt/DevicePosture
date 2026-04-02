@@ -6,3 +6,4 @@ POLICY_SERVICE_URL = os.getenv("POLICY_SERVICE_URL", "http://127.0.0.1:8002")
 ENFORCEMENT_SERVICE_URL = os.getenv("ENFORCEMENT_SERVICE_URL", "http://127.0.0.1:8004")
 FORWARD_DECISIONS = os.getenv("FORWARD_DECISIONS", "true").lower() == "true"
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
+INTER_SERVICE_API_KEY = os.getenv("POSTURE_API_KEY", "").strip()

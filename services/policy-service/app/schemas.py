@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,7 +29,7 @@ class PolicyCreate(BaseModel):
     description: str | None = None
     policy_scope: PolicyScope = "posture"
     lifecycle_event_type: LifecycleEventType | None = None
-    target_action: str = "quarantine"
+    target_action: Literal["allow", "quarantine", "block"] = "quarantine"
     is_active: bool = True
     conditions: list[PolicyCondition] = Field(default_factory=list)
     execution: PolicyExecutionConfig | None = None
@@ -46,7 +47,7 @@ class PolicyUpdate(BaseModel):
     description: str | None = None
     policy_scope: PolicyScope | None = None
     lifecycle_event_type: LifecycleEventType | None = None
-    target_action: str | None = None
+    target_action: Literal["allow", "quarantine", "block"] | None = None
     is_active: bool | None = None
     conditions: list[PolicyCondition] | None = None
     execution: PolicyExecutionConfig | None = None
@@ -57,8 +58,8 @@ class PolicyResponse(PosturePolicy):
 
 
 class AssignmentCreate(BaseModel):
-    assignment_type: str
-    assignment_value: str
+    assignment_type: Literal["endpoint", "group", "default"]
+    assignment_value: str = Field(min_length=1, max_length=255)
 
 
 class AssignmentResponse(PolicyAssignment):
@@ -66,17 +67,17 @@ class AssignmentResponse(PolicyAssignment):
 
 
 class ConditionGroupCreate(BaseModel):
-    name: str
-    group_type: str
-    description: str | None = None
-    values: list[str] = Field(default_factory=list)
+    name: str = Field(min_length=1, max_length=128)
+    group_type: str = Field(min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=500)
+    values: list[str] = Field(default_factory=list, max_length=5000)
 
 
 class ConditionGroupUpdate(BaseModel):
-    name: str | None = None
-    group_type: str | None = None
-    description: str | None = None
-    values: list[str] | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    group_type: str | None = Field(default=None, min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=500)
+    values: list[str] | None = Field(default=None, max_length=5000)
 
 
 class ConditionGroupResponse(BaseModel):
@@ -89,3 +90,110 @@ class ConditionGroupResponse(BaseModel):
     values: list[str]
     created_at: datetime
     updated_at: datetime
+
+
+class EndpointAssignedPolicyResponse(BaseModel):
+    policy_id: int
+    policy_name: str
+    policy_scope: PolicyScope
+    lifecycle_event_type: LifecycleEventType | None = None
+    assignment_type: Literal["endpoint", "group", "default"]
+    assignment_value: str
+
+
+AuthProtocol = Literal["local", "ldap", "radius", "oidc", "oauth2", "saml"]
+
+
+class AuthProviderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    protocol: Literal["ldap", "radius", "oidc", "oauth2", "saml"]
+    is_enabled: bool = False
+    priority: int = Field(default=100, ge=0, le=10000)
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuthProviderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    protocol: Literal["ldap", "radius", "oidc", "oauth2", "saml"] | None = None
+    is_enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+    settings: dict[str, Any] | None = None
+
+
+class AuthProviderResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    protocol: Literal["ldap", "radius", "oidc", "oauth2", "saml"]
+    is_enabled: bool
+    priority: int
+    settings: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProviderConnectivityResult(BaseModel):
+    ok: bool
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderCredentialsTestRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class UserAccountCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    full_name: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    is_active: bool = True
+    auth_source: AuthProtocol = "local"
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    external_subject: str | None = Field(default=None, max_length=255)
+    external_groups: list[str] = Field(default_factory=list, max_length=200)
+    roles: list[str] = Field(default_factory=lambda: ["admin"], max_length=20)
+
+
+class UserAccountUpdate(BaseModel):
+    full_name: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    is_active: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    external_subject: str | None = Field(default=None, max_length=255)
+    external_groups: list[str] | None = Field(default=None, max_length=200)
+    roles: list[str] | None = Field(default=None, max_length=20)
+
+
+class UserAccountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    full_name: str | None = None
+    email: str | None = None
+    is_active: bool
+    auth_source: AuthProtocol
+    external_subject: str | None = None
+    external_groups: list[str]
+    roles: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class AuthSessionUser(BaseModel):
+    username: str
+    full_name: str | None = None
+    auth_source: AuthProtocol
+    roles: list[str] = Field(default_factory=list)
+
+
+class LoginResponse(BaseModel):
+    expires_at: datetime
+    user: AuthSessionUser

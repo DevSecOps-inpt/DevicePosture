@@ -9,7 +9,8 @@ import {
   Network,
   Puzzle,
   ScrollText,
-  Settings
+  Settings,
+  UserCog
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -50,7 +51,10 @@ export const navigationGroups: NavigationGroup[] = [
   },
   {
     title: "Platform",
-    items: [{ label: "Settings", href: "/settings", icon: Settings }]
+    items: [
+      { label: "User Administration", href: "/users", icon: UserCog },
+      { label: "Settings", href: "/settings", icon: Settings }
+    ]
   }
 ];
 

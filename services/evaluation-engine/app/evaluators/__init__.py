@@ -1,5 +1,6 @@
 from app.evaluators.allowed_antivirus import AllowedAntivirusEvaluator
 from app.evaluators.base import EvaluatorRegistry
+from app.evaluators.domain_membership import DomainMembershipEvaluator
 from app.evaluators.os_version import OSVersionEvaluator
 from app.evaluators.required_kbs import RequiredKBsEvaluator
 
@@ -9,4 +10,5 @@ def build_registry() -> EvaluatorRegistry:
     registry.register(OSVersionEvaluator())
     registry.register(RequiredKBsEvaluator())
     registry.register(AllowedAntivirusEvaluator())
+    registry.register(DomainMembershipEvaluator())
     return registry

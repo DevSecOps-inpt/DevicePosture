@@ -3,6 +3,7 @@
 import { Bell, Command, Search } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { quickSearchSuggestions } from "@/lib/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/components/ui/toast-provider";
 
 const pageNames: Record<string, string> = {
@@ -15,11 +16,13 @@ const pageNames: Record<string, string> = {
   "/events": "Events / Logs",
   "/tasks": "Tasks / Jobs",
   "/alerts": "Alerts / Findings",
+  "/users": "User Administration",
   "/settings": "Settings"
 };
 
 export function Topbar() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
   const { pushToast } = useToast();
   const sectionKey = Object.keys(pageNames).find((key) => pathname === key || pathname.startsWith(`${key}/`)) ?? "/dashboard";
   const title = pageNames[sectionKey];
@@ -60,11 +63,24 @@ export function Topbar() {
               <Bell className="h-4 w-4" />
             </button>
             <div className="flex items-center gap-3 rounded-2xl border border-border bg-slate-900/70 px-3 py-2.5">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-500/15 text-sm font-semibold text-teal-200">EH</div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-medium text-slate-100">Essag H.</p>
-                <p className="text-xs text-slate-500">Platform Administrator</p>
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-500/15 text-sm font-semibold text-teal-200">
+                {user?.username?.slice(0, 2).toUpperCase() ?? "NA"}
               </div>
+              <div className="hidden sm:block">
+                <p className="text-sm font-medium text-slate-100">{user?.full_name ?? user?.username ?? "Unknown user"}</p>
+                <p className="text-xs text-slate-500">
+                  {(user?.roles ?? []).join(", ") || "operator"} | {user?.auth_source ?? "local"}
+                </p>
+              </div>
+              <button
+                className="rounded-lg border border-border bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-900"
+                onClick={async () => {
+                  await logout();
+                  pushToast({ tone: "info", title: "Signed out" });
+                }}
+              >
+                Sign out
+              </button>
             </div>
           </div>
         </div>

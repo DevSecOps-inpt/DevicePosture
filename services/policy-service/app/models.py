@@ -52,3 +52,33 @@ class ConditionGroupModel(Base):
     values: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AuthProviderModel(Base):
+    __tablename__ = "auth_providers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    protocol: Mapped[str] = mapped_column(String(32), index=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100, index=True)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserAccountModel(Base):
+    __tablename__ = "user_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    auth_source: Mapped[str] = mapped_column(String(32), default="local", index=True)
+    local_password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    external_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    external_groups: Mapped[list[str]] = mapped_column(JSON, default=list)
+    roles: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

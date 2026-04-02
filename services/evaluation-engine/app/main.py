@@ -1,8 +1,14 @@
-from fastapi import Depends, FastAPI, HTTPException
+import logging
+import threading
+import time
+from uuid import uuid4
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from requests import RequestException
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
 from app.client import fetch_latest_telemetry, fetch_policy, forward_decision
@@ -13,23 +19,73 @@ from app.service import evaluate_telemetry
 from posture_shared.models.evaluation import ComplianceDecision
 from posture_shared.models.policy import PosturePolicy
 from posture_shared.models.telemetry import EndpointTelemetry
+from posture_shared.security import parse_cors_origins, require_api_key
 
 
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_performance_indexes() -> None:
+    statements = [
+        "CREATE INDEX IF NOT EXISTS idx_evaluation_results_endpoint_created ON evaluation_results(endpoint_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_evaluation_results_policy_created ON evaluation_results(policy_id, created_at DESC)",
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+ensure_performance_indexes()
+
 app = FastAPI(title="evaluation-engine", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=6)
 registry = build_registry()
+logger = logging.getLogger("evaluation-engine")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+EVALUATION_RATE_LIMIT_PER_MINUTE = 120
+_evaluation_rate_lock = threading.Lock()
+_evaluation_rate_state: dict[str, list[float]] = {}
+
+
+def _apply_evaluation_rate_limit(identity: str) -> None:
+    now = time.monotonic()
+    with _evaluation_rate_lock:
+        history = _evaluation_rate_state.setdefault(identity, [])
+        history[:] = [item for item in history if now - item <= 60.0]
+        if len(history) >= EVALUATION_RATE_LIMIT_PER_MINUTE:
+            raise HTTPException(status_code=429, detail="Too many evaluation requests")
+        history.append(now)
 
 
 class InlineEvaluationRequest(BaseModel):
     telemetry: EndpointTelemetry
     policy: PosturePolicy | None = None
+
+
+@app.middleware("http")
+async def request_observability_middleware(request, call_next):
+    request_id = request.headers.get("X-Request-ID", "").strip() or str(uuid4())
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
+        request_id,
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
 
 
 @app.get("/healthz")
@@ -38,12 +94,23 @@ def healthcheck() -> dict[str, str]:
 
 
 @app.post("/evaluate/{endpoint_id}", response_model=ComplianceDecision)
-def evaluate_endpoint(endpoint_id: str, db: Session = Depends(get_db)) -> ComplianceDecision:
+def evaluate_endpoint(
+    endpoint_id: str,
+    request: Request,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> ComplianceDecision:
+    source_ip = request.client.host if request.client else "unknown"
+    _apply_evaluation_rate_limit(f"evaluate:{source_ip}")
     try:
         telemetry = fetch_latest_telemetry(endpoint_id)
         policy = fetch_policy(endpoint_id)
     except RequestException as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.warning("upstream call failed for endpoint_id=%s error=%s", endpoint_id, exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch telemetry or policy from upstream services",
+        ) from exc
 
     decision = evaluate_telemetry(telemetry, policy, registry)
     result = EvaluationResultModel(
@@ -60,14 +127,23 @@ def evaluate_endpoint(endpoint_id: str, db: Session = Depends(get_db)) -> Compli
 
     try:
         forward_decision(decision)
-    except RequestException:
-        pass
+    except RequestException as exc:
+        logger.warning(
+            "failed to forward decision endpoint_id=%s policy_id=%s error=%s",
+            decision.endpoint_id,
+            decision.policy_id,
+            exc,
+        )
 
     return decision
 
 
 @app.get("/results/{endpoint_id}/latest", response_model=ComplianceDecision)
-def latest_result(endpoint_id: str, db: Session = Depends(get_db)) -> ComplianceDecision:
+def latest_result(
+    endpoint_id: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> ComplianceDecision:
     result = db.scalar(
         select(EvaluationResultModel)
         .where(EvaluationResultModel.endpoint_id == endpoint_id)
@@ -79,15 +155,46 @@ def latest_result(endpoint_id: str, db: Session = Depends(get_db)) -> Compliance
 
 
 @app.get("/results/{endpoint_id}", response_model=list[ComplianceDecision])
-def result_history(endpoint_id: str, db: Session = Depends(get_db)) -> list[ComplianceDecision]:
+def result_history(
+    endpoint_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[ComplianceDecision]:
     results = db.scalars(
         select(EvaluationResultModel)
         .where(EvaluationResultModel.endpoint_id == endpoint_id)
         .order_by(desc(EvaluationResultModel.created_at))
+        .limit(limit)
     ).all()
     return [ComplianceDecision.model_validate(item.raw_result) for item in results]
 
 
+@app.get("/results/latest-batch", response_model=dict[str, ComplianceDecision | None])
+def latest_result_batch(
+    endpoint_id: list[str] = Query(default=[]),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict[str, ComplianceDecision | None]:
+    endpoint_ids = [item.strip() for item in endpoint_id if item.strip()]
+    response: dict[str, ComplianceDecision | None] = {item: None for item in endpoint_ids}
+    if not endpoint_ids:
+        return response
+
+    rows = db.scalars(
+        select(EvaluationResultModel)
+        .where(EvaluationResultModel.endpoint_id.in_(endpoint_ids))
+        .order_by(EvaluationResultModel.endpoint_id, desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
+    ).all()
+    for row in rows:
+        if response.get(row.endpoint_id) is None:
+            response[row.endpoint_id] = ComplianceDecision.model_validate(row.raw_result)
+    return response
+
+
 @app.post("/evaluate-inline", response_model=ComplianceDecision)
-def evaluate_inline(payload: InlineEvaluationRequest) -> ComplianceDecision:
+def evaluate_inline(
+    payload: InlineEvaluationRequest,
+    _: None = Depends(require_api_key),
+) -> ComplianceDecision:
     return evaluate_telemetry(payload.telemetry, payload.policy, registry)

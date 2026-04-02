@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import type { AdapterConfig, ConditionGroup } from "@/types/platform";
+import type { AdapterConfig, AuthProvider, ConditionGroup } from "@/types/platform";
 import {
   ANTIVIRUS_FAMILY_SUGGESTIONS,
   ANTIVIRUS_STATUS_SUGGESTIONS,
@@ -20,6 +20,7 @@ type PolicyFormSectionsProps = {
   value: PolicyEditorState;
   onChange: Dispatch<SetStateAction<PolicyEditorState>>;
   conditionGroups?: ConditionGroup[];
+  ldapProviders?: AuthProvider[];
   adapterProfiles?: AdapterConfig[];
   ipGroups?: Array<{ name: string }>;
 };
@@ -53,7 +54,8 @@ function updateExecution(
 export function PolicyConditionsSection({
   value,
   onChange,
-  conditionGroups = []
+  conditionGroups = [],
+  ldapProviders = []
 }: PolicyFormSectionsProps) {
   const osGroups = conditionGroups.filter((group) => group.group_type === "allowed_os");
   const patchGroups = conditionGroups.filter((group) => group.group_type === "allowed_patches");
@@ -347,11 +349,67 @@ export function PolicyConditionsSection({
         </div>
       </div>
 
-      <div className="rounded-xl border border-dashed border-border bg-slate-900/20 p-3">
-        <p className="text-sm text-slate-300">Domain membership check (optional, not active yet)</p>
-        <p className="mt-1 text-xs text-slate-500">
-          This field is reserved for the future domain check condition.
+      <div className="rounded-xl border border-border bg-slate-900/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-slate-200">Domain join in LDAP tree</p>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={value.conditions.domainMembershipEnabled}
+              onChange={(event) =>
+                updateConditions(onChange, { domainMembershipEnabled: event.target.checked })
+              }
+            />
+            Enabled
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          Select one enabled LDAP server. Backend verifies the endpoint is domain-joined and within that server tree.
         </p>
+        <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
+          <select
+            value={value.conditions.domainMembershipOperator}
+            onChange={(event) =>
+              updateConditions(onChange, {
+                domainMembershipOperator: event.target.value as PolicyEditorState["conditions"]["domainMembershipOperator"]
+              })
+            }
+            disabled={!value.conditions.domainMembershipEnabled}
+            className={inputClassName}
+          >
+            {MEMBERSHIP_OPERATORS.map((operator) => (
+              <option key={operator} value={operator}>
+                {operator}
+              </option>
+            ))}
+          </select>
+          <select
+            value={
+              value.conditions.domainLdapProviderId === ""
+                ? ""
+                : String(value.conditions.domainLdapProviderId)
+            }
+            onChange={(event) =>
+              updateConditions(onChange, {
+                domainLdapProviderId: event.target.value ? Number(event.target.value) : ""
+              })
+            }
+            disabled={!value.conditions.domainMembershipEnabled}
+            className={inputClassName}
+          >
+            <option value="">Select enabled LDAP server</option>
+            {ldapProviders.map((provider) => (
+              <option key={provider.id} value={String(provider.id)}>
+                {provider.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {value.conditions.domainMembershipEnabled && ldapProviders.length === 0 ? (
+          <p className="mt-2 text-xs text-amber-300">
+            No enabled LDAP provider found. Configure one in Extensions first.
+          </p>
+        ) : null}
       </div>
     </div>
   );

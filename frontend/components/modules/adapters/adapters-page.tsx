@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Cable, Edit, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSmartPolling } from "@/hooks/use-smart-polling";
 import type { AdapterConfig, AdapterProfileHealth, ServiceStatus } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,7 +62,10 @@ function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
     adapter,
     isActive: profile.is_active,
     baseUrl: String((settings.base_url as string) ?? ""),
-    token: String((settings.token as string) ?? ""),
+    // Tokens are intentionally not returned by backend in plaintext.
+    // Keep token field empty during edit; backend preserves existing token
+    // when the field is left empty.
+    token: "",
     timeoutSeconds: String((settings.timeout_seconds as number | string) ?? "10"),
     retries: String((settings.retries as number | string) ?? "3"),
     targetGroup: String(
@@ -197,12 +201,11 @@ export function AdaptersPage() {
     void loadData();
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void refreshRuntimeHealth({ quiet: true });
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [profiles]);
+  useSmartPolling(() => refreshRuntimeHealth({ quiet: true }), {
+    visibleIntervalMs: 15000,
+    hiddenIntervalMs: 90000,
+    runImmediately: false
+  });
 
   const nextProfileName = useMemo(() => {
     let index = profiles.length + 1;

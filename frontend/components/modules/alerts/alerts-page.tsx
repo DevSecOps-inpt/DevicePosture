@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, RefreshCcw } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSmartPolling } from "@/hooks/use-smart-polling";
 import { buildAlertsFromEndpoints, buildEndpointView } from "@/lib/platform-data";
-import type { AlertView } from "@/types/platform";
+import type { AlertView, ComplianceDecision, EnforcementResult, Policy } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -22,36 +23,49 @@ export function AlertsPage() {
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
 
-  const loadAlerts = async () => {
-    setLoading(true);
+  const loadAlerts = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const endpointSummaries = await api.listEndpoints();
-      const endpoints = await Promise.all(
-        endpointSummaries.map(async (endpoint) => {
-          const [telemetry, decision, policy, enforcement] = await Promise.all([
-            api.getLatestTelemetry(endpoint.endpoint_id).catch(() => null),
-            api.getLatestDecision(endpoint.endpoint_id).catch(() => null),
-            api.resolvePolicy(endpoint.endpoint_id).catch(() => null),
-            api.getLatestEnforcement(endpoint.endpoint_id).catch(() => null)
-          ]);
-          return buildEndpointView({ endpoint, telemetry, policy, decision, enforcement });
+      const endpointIds = endpointSummaries.map((item) => item.endpoint_id);
+      const [telemetryBatch, decisionBatch, policyBatch, enforcementBatch] = await Promise.all([
+        api.getLatestTelemetryBatch(endpointIds, { includeRaw: false }).catch(() => []),
+        api.getLatestDecisionBatch(endpointIds).catch(() => ({} as Record<string, ComplianceDecision | null>)),
+        api.resolvePolicyBatch(endpointIds).catch(() => ({} as Record<string, Policy | null>)),
+        api.getLatestEnforcementBatch(endpointIds).catch(() => ({} as Record<string, EnforcementResult | null>))
+      ]);
+      const telemetryByEndpoint = Object.fromEntries(telemetryBatch.map((item) => [item.endpoint_id, item]));
+      const endpoints = endpointSummaries.map((endpoint) =>
+        buildEndpointView({
+          endpoint,
+          telemetry: telemetryByEndpoint[endpoint.endpoint_id] ?? null,
+          policy: policyBatch[endpoint.endpoint_id] ?? null,
+          decision: decisionBatch[endpoint.endpoint_id] ?? null,
+          enforcement: enforcementBatch[endpoint.endpoint_id] ?? null
         })
       );
       setAlerts(buildAlertsFromEndpoints(endpoints));
     } catch (error) {
-      pushToast({
-        tone: "error",
-        title: "Failed to load alerts",
-        description: error instanceof Error ? error.message : "Unknown error"
-      });
+      if (!silent) {
+        pushToast({
+          tone: "error",
+          title: "Failed to load alerts",
+          description: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadAlerts();
+    void loadAlerts();
   }, []);
+  useSmartPolling(() => loadAlerts({ silent: true }), { visibleIntervalMs: 12000, hiddenIntervalMs: 60000, runImmediately: false });
 
   const filtered = useMemo(() => {
     return alerts.filter((alert) => {
@@ -69,7 +83,7 @@ export function AlertsPage() {
         title="Alerts / Findings"
         description="Findings are derived from compliance decisions returned by the evaluation engine."
         actions={
-          <Button variant="secondary" onClick={loadAlerts} disabled={loading}>
+          <Button variant="secondary" onClick={() => void loadAlerts()} disabled={loading}>
             <RefreshCcw className="mr-2 h-4 w-4" />
             {loading ? "Refreshing..." : "Refresh"}
           </Button>

@@ -1,23 +1,41 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from datetime import datetime, timezone
+import ipaddress
+import logging
+import threading
+import time
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
 import requests
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import desc, select
+from fastapi.middleware.gzip import GZipMiddleware
+from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
 from app.adapters import build_registry
 from app.adapters.fortigate import FortiGateAdapter
 from app.config import DEFAULT_ADAPTER, HTTP_TIMEOUT_SECONDS
-from app.db import Base, engine, get_db
+from app.config import (
+    ADAPTER_TOKEN_MASK,
+    ALLOW_POLICY_HTTP_ACTIONS,
+    ALLOW_PRIVATE_HTTP_TARGETS,
+    ASYNC_DECISION_EXECUTION,
+    BACKGROUND_WORKERS,
+    HTTP_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+    HTTP_CIRCUIT_BREAKER_THRESHOLD,
+    POLICY_HTTP_ALLOWED_HOSTS,
+)
+from app.db import Base, SessionLocal, engine, get_db
 from app.models import (
     AdapterConfigModel,
     AuditEventModel,
+    BackgroundJobModel,
     EnforcementRecordModel,
     IpGroupMemberModel,
     IpGroupModel,
@@ -38,6 +56,7 @@ from app.schemas import (
     AdapterConfigResponse,
     AdapterConfigUpsert,
     AuditEvent,
+    BackgroundJobResponse,
     IpAddressMembershipRequest,
     IpGroupCreate,
     IpGroupMemberAddRequest,
@@ -49,27 +68,108 @@ from app.schemas import (
 )
 from posture_shared.models.enforcement import EnforcementAction, EnforcementResult
 from posture_shared.models.evaluation import ComplianceDecision
+from posture_shared.security import parse_cors_origins, require_api_key
 
 
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_performance_indexes() -> None:
+    statements = [
+        "CREATE INDEX IF NOT EXISTS idx_enforcement_records_endpoint_created ON enforcement_records(endpoint_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_events_endpoint_created ON audit_events(endpoint_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_background_jobs_status_created ON background_jobs(status, created_at DESC)",
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+ensure_performance_indexes()
+
 app = FastAPI(title="enforcement-service", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=6)
 registry = build_registry()
 fortigate_adapter = FortiGateAdapter()
+executor = ThreadPoolExecutor(max_workers=max(1, BACKGROUND_WORKERS))
+logger = logging.getLogger("enforcement-service")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+_circuit_breaker_lock = threading.Lock()
+_circuit_breakers: dict[str, dict[str, float | int]] = {}
+_request_rate_lock = threading.Lock()
+_request_rate_state: dict[str, list[float]] = {}
+ENFORCEMENT_RATE_LIMIT_PER_MINUTE = 240
+request_correlation_id: ContextVar[str] = ContextVar("request_correlation_id", default="")
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _apply_rate_limit(identity: str) -> None:
+    now = time.monotonic()
+    with _request_rate_lock:
+        history = _request_rate_state.setdefault(identity, [])
+        history[:] = [item for item in history if now - item <= 60.0]
+        if len(history) >= ENFORCEMENT_RATE_LIMIT_PER_MINUTE:
+            raise HTTPException(status_code=429, detail="Too many requests")
+        history.append(now)
+
+
+@app.middleware("http")
+async def request_observability_middleware(request, call_next):
+    request_id = request.headers.get("X-Request-ID", "").strip() or str(uuid4())
+    context_token = request_correlation_id.set(request_id)
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+        return response
+    finally:
+        request_correlation_id.reset(context_token)
+
+
+def sanitize_sensitive_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key.lower() in SENSITIVE_SETTING_KEYS and item:
+                sanitized[key] = ADAPTER_TOKEN_MASK
+            else:
+                sanitized[key] = sanitize_sensitive_payload(item)
+        return sanitized
+    if isinstance(value, list):
+        return [sanitize_sensitive_payload(item) for item in value]
+    return value
+
+
 def store_audit_event(db: Session, event_type: str, endpoint_id: str | None, payload: dict) -> None:
-    db.add(AuditEventModel(event_type=event_type, endpoint_id=endpoint_id, payload=payload))
+    payload_with_correlation = dict(payload)
+    payload_with_correlation.setdefault("correlation_id", request_correlation_id.get())
+    db.add(
+        AuditEventModel(
+            event_type=event_type,
+            endpoint_id=endpoint_id,
+            payload=sanitize_sensitive_payload(payload_with_correlation),
+        )
+    )
 
 
 def _short_error_message(exc: Exception) -> str:
@@ -77,6 +177,99 @@ def _short_error_message(exc: Exception) -> str:
     if len(text) > 240:
         return f"{text[:237]}..."
     return text or "Unknown adapter error"
+
+
+SENSITIVE_SETTING_KEYS = {"token", "api_key", "apikey", "secret", "password"}
+
+
+def sanitize_adapter_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in settings.items():
+        if key.lower() in SENSITIVE_SETTING_KEYS and value:
+            sanitized[key] = ADAPTER_TOKEN_MASK
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
+def _is_http_target_allowed(url: str) -> tuple[bool, str | None]:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False, "Only http/https URLs are allowed for policy HTTP actions"
+
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False, "Target URL host is missing"
+
+    if POLICY_HTTP_ALLOWED_HOSTS and host not in POLICY_HTTP_ALLOWED_HOSTS:
+        return False, f"Host '{host}' is not in POLICY_HTTP_ALLOWED_HOSTS"
+
+    if ALLOW_PRIVATE_HTTP_TARGETS:
+        return True, None
+
+    blocked_hosts = {"localhost", "127.0.0.1", "::1"}
+    if host in blocked_hosts:
+        return False, "Loopback/localhost targets are blocked"
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # Non-IP hostnames are allowed unless explicit allow-list is set.
+        return True, None
+
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+        return False, "Private or local network targets are blocked"
+    return True, None
+
+
+def _validate_adapter_base_url(settings: dict[str, Any]) -> None:
+    base_url = str(settings.get("base_url") or "").strip()
+    if not base_url:
+        return
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=422, detail="settings.base_url must be an absolute http(s) URL")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=422, detail="settings.base_url must not include credentials")
+
+
+def _circuit_key_for_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return f"{parsed.scheme}://{host}:{port}"
+
+
+def _circuit_is_open(key: str) -> tuple[bool, float]:
+    now = time.time()
+    with _circuit_breaker_lock:
+        state = _circuit_breakers.get(key)
+        if not state:
+            return False, 0.0
+        opened_until = float(state.get("opened_until", 0.0))
+        if opened_until > now:
+            return True, opened_until
+        if opened_until > 0:
+            state["opened_until"] = 0.0
+            state["failures"] = 0
+        return False, 0.0
+
+
+def _circuit_mark_success(key: str) -> None:
+    with _circuit_breaker_lock:
+        state = _circuit_breakers.setdefault(key, {"failures": 0, "opened_until": 0.0})
+        state["failures"] = 0
+        state["opened_until"] = 0.0
+
+
+def _circuit_mark_failure(key: str) -> None:
+    now = time.time()
+    with _circuit_breaker_lock:
+        state = _circuit_breakers.setdefault(key, {"failures": 0, "opened_until": 0.0})
+        failures = int(state.get("failures", 0)) + 1
+        state["failures"] = failures
+        if failures >= HTTP_CIRCUIT_BREAKER_THRESHOLD:
+            state["opened_until"] = now + float(HTTP_CIRCUIT_BREAKER_COOLDOWN_SECONDS)
 
 
 def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
@@ -164,6 +357,18 @@ def to_ip_group_response(item: IpGroupModel) -> IpGroupResponse:
         updated_at=item.updated_at,
         member_count=len(member_object_ids),
         member_object_ids=member_object_ids,
+    )
+
+
+def to_adapter_config_response(item: AdapterConfigModel) -> AdapterConfigResponse:
+    return AdapterConfigResponse(
+        id=item.id,
+        name=item.name,
+        adapter=item.adapter,
+        is_active=item.is_active,
+        settings=sanitize_adapter_settings(item.settings or {}),
+        created_at=item.created_at,
+        updated_at=item.updated_at,
     )
 
 
@@ -437,6 +642,16 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             continue
 
         if action_type == "adapter.post_event":
+            if not ALLOW_POLICY_HTTP_ACTIONS:
+                payload = {
+                    "action_type": action_type,
+                    "status": "skipped",
+                    "message": "Policy HTTP actions are disabled by server configuration",
+                }
+                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
+                results.append(payload)
+                continue
+
             selected_adapter = str(rendered_parameters.get("adapter") or adapter_name)
             selected_profile = rendered_parameters.get("adapter_profile") or adapter_profile
             profile_name, settings = resolve_adapter_settings(db, selected_adapter, selected_profile)
@@ -457,6 +672,33 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
 
             base_url = str(settings.get("base_url") or "")
             target_url = resolve_event_url(base_url, endpoint_path)
+            allowed, reason = _is_http_target_allowed(target_url)
+            if not allowed:
+                payload = {
+                    "action_type": action_type,
+                    "status": "failed",
+                    "adapter": selected_adapter,
+                    "adapter_profile": profile_name,
+                    "url": target_url,
+                    "message": reason,
+                }
+                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
+                results.append(payload)
+                continue
+            circuit_key = _circuit_key_for_url(target_url)
+            is_open, opened_until = _circuit_is_open(circuit_key)
+            if is_open:
+                payload = {
+                    "action_type": action_type,
+                    "status": "failed",
+                    "adapter": selected_adapter,
+                    "adapter_profile": profile_name,
+                    "url": target_url,
+                    "message": f"Circuit breaker is open until {datetime.fromtimestamp(opened_until, tz=timezone.utc).isoformat()}",
+                }
+                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
+                results.append(payload)
+                continue
             method = str(rendered_parameters.get("method") or "POST").upper()
             timeout = float(rendered_parameters.get("timeout_seconds", settings.get("timeout_seconds", HTTP_TIMEOUT_SECONDS)))
             headers = rendered_parameters.get("headers") if isinstance(rendered_parameters.get("headers"), dict) else {}
@@ -496,7 +738,11 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 }
                 if response.status_code >= 400:
                     payload["message"] = "Adapter event POST returned an error status"
+                    _circuit_mark_failure(circuit_key)
+                else:
+                    _circuit_mark_success(circuit_key)
             except requests.RequestException as exc:
+                _circuit_mark_failure(circuit_key)
                 payload = {
                     "action_type": action_type,
                     "status": "failed",
@@ -511,9 +757,44 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             continue
 
         if action_type in {"http.get", "http.post"}:
+            if not ALLOW_POLICY_HTTP_ACTIONS:
+                payload = {
+                    "action_type": action_type,
+                    "status": "skipped",
+                    "message": "Policy HTTP actions are disabled by server configuration",
+                }
+                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
+                results.append(payload)
+                continue
+
             url = rendered_parameters.get("url")
             if not url:
                 results.append({"action_type": action_type, "status": "failed", "message": "url is required"})
+                continue
+
+            allowed, reason = _is_http_target_allowed(str(url))
+            if not allowed:
+                payload = {
+                    "action_type": action_type,
+                    "status": "failed",
+                    "url": str(url),
+                    "message": reason,
+                }
+                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
+                results.append(payload)
+                continue
+            target_url = str(url)
+            circuit_key = _circuit_key_for_url(target_url)
+            is_open, opened_until = _circuit_is_open(circuit_key)
+            if is_open:
+                payload = {
+                    "action_type": action_type,
+                    "status": "failed",
+                    "url": target_url,
+                    "message": f"Circuit breaker is open until {datetime.fromtimestamp(opened_until, tz=timezone.utc).isoformat()}",
+                }
+                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
+                results.append(payload)
                 continue
 
             method = "GET" if action_type == "http.get" else "POST"
@@ -523,7 +804,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             try:
                 response = requests.request(
                     method=method,
-                    url=str(url),
+                    url=target_url,
                     headers=headers,
                     json=body,
                     timeout=timeout,
@@ -537,7 +818,11 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 }
                 if response.status_code >= 400:
                     payload["message"] = "HTTP request returned an error status"
+                    _circuit_mark_failure(circuit_key)
+                else:
+                    _circuit_mark_success(circuit_key)
             except requests.RequestException as exc:
+                _circuit_mark_failure(circuit_key)
                 payload = {
                     "action_type": action_type,
                     "status": "failed",
@@ -581,13 +866,21 @@ def fallback_quarantine(decision: ComplianceDecision, db: Session) -> Enforcemen
     return result
 
 
-@app.get("/healthz")
-def healthcheck() -> dict[str, str]:
-    return {"status": "ok"}
+def to_background_job_response(item: BackgroundJobModel) -> BackgroundJobResponse:
+    return BackgroundJobResponse(
+        id=item.id,
+        job_type=item.job_type,
+        status=item.status,
+        endpoint_id=item.endpoint_id,
+        payload=item.payload or {},
+        result=item.result or {},
+        error_message=item.error_message,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
 
 
-@app.post("/decisions")
-def handle_decision(decision: ComplianceDecision, db: Session = Depends(get_db)) -> dict:
+def process_decision_with_db(decision: ComplianceDecision, db: Session) -> dict:
     store_audit_event(db, "endpoint.evaluated", decision.endpoint_id, decision.model_dump(mode="json"))
     if decision.compliant:
         store_audit_event(
@@ -612,7 +905,6 @@ def handle_decision(decision: ComplianceDecision, db: Session = Depends(get_db))
         action_taken = action_taken or result.status == "success"
         fallback_result = result.model_dump(mode="json")
 
-    db.commit()
     response = {
         "status": "logged",
         "action_taken": action_taken,
@@ -623,8 +915,82 @@ def handle_decision(decision: ComplianceDecision, db: Session = Depends(get_db))
     return response
 
 
+def _background_process_decision(job_id: int, decision_payload: dict) -> None:
+    db = SessionLocal()
+    try:
+        job = db.get(BackgroundJobModel, job_id)
+        if job is None:
+            return
+        job.status = "running"
+        job.updated_at = utcnow()
+        db.commit()
+
+        decision = ComplianceDecision.model_validate(decision_payload)
+        result = process_decision_with_db(decision, db)
+        job.status = "completed"
+        job.result = result
+        job.updated_at = utcnow()
+        db.commit()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        db.rollback()
+        job = db.get(BackgroundJobModel, job_id)
+        if job is not None:
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.updated_at = utcnow()
+            db.commit()
+        logger.exception("background decision job failed job_id=%s error=%s", job_id, exc)
+    finally:
+        db.close()
+
+
+@app.get("/healthz")
+def healthcheck() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/decisions")
+def handle_decision(
+    decision: ComplianceDecision,
+    request: Request,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    source_ip = request.client.host if request.client else "unknown"
+    _apply_rate_limit(f"decision:{source_ip}")
+    if ASYNC_DECISION_EXECUTION:
+        job = BackgroundJobModel(
+            job_type="decision",
+            status="queued",
+            endpoint_id=decision.endpoint_id,
+            payload=decision.model_dump(mode="json"),
+            result={},
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        executor.submit(_background_process_decision, job.id, job.payload)
+        return {
+            "status": "queued",
+            "job_id": job.id,
+            "action_taken": False,
+            "execution_results": [],
+        }
+
+    response = process_decision_with_db(decision, db)
+    db.commit()
+    return response
+
+
 @app.post("/actions", response_model=EnforcementResult)
-def run_action(action: EnforcementAction, db: Session = Depends(get_db)) -> EnforcementResult:
+def run_action(
+    action: EnforcementAction,
+    request: Request,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> EnforcementResult:
+    source_ip = request.client.host if request.client else "unknown"
+    _apply_rate_limit(f"action:{source_ip}")
     result = registry.execute(action)
     persist_enforcement_result(db, result)
     store_audit_event(db, "endpoint.action.requested", action.endpoint_id, action.model_dump(mode="json"))
@@ -633,7 +999,11 @@ def run_action(action: EnforcementAction, db: Session = Depends(get_db)) -> Enfo
 
 
 @app.get("/enforcement/{endpoint_id}/latest", response_model=EnforcementResult)
-def latest_enforcement(endpoint_id: str, db: Session = Depends(get_db)) -> EnforcementResult:
+def latest_enforcement(
+    endpoint_id: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> EnforcementResult:
     record = db.scalar(
         select(EnforcementRecordModel)
         .where(EnforcementRecordModel.endpoint_id == endpoint_id)
@@ -651,9 +1021,72 @@ def latest_enforcement(endpoint_id: str, db: Session = Depends(get_db)) -> Enfor
     )
 
 
+@app.get("/enforcement/latest-batch", response_model=dict[str, EnforcementResult | None])
+def latest_enforcement_batch(
+    endpoint_id: list[str] = Query(default=[]),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict[str, EnforcementResult | None]:
+    endpoint_ids = [item.strip() for item in endpoint_id if item.strip()]
+    response: dict[str, EnforcementResult | None] = {item: None for item in endpoint_ids}
+    if not endpoint_ids:
+        return response
+    records = db.scalars(
+        select(EnforcementRecordModel)
+        .where(EnforcementRecordModel.endpoint_id.in_(endpoint_ids))
+        .order_by(EnforcementRecordModel.endpoint_id, desc(EnforcementRecordModel.created_at), desc(EnforcementRecordModel.id))
+    ).all()
+    for record in records:
+        if response.get(record.endpoint_id) is None:
+            response[record.endpoint_id] = EnforcementResult(
+                adapter=record.adapter,
+                action=record.action,
+                endpoint_id=record.endpoint_id,
+                status=record.status,
+                details=record.details,
+                completed_at=record.created_at,
+            )
+    return response
+
+
+@app.get("/jobs", response_model=list[BackgroundJobResponse])
+def list_jobs(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[BackgroundJobResponse]:
+    items = db.scalars(
+        select(BackgroundJobModel)
+        .order_by(desc(BackgroundJobModel.created_at))
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [to_background_job_response(item) for item in items]
+
+
+@app.get("/jobs/{job_id}", response_model=BackgroundJobResponse)
+def get_job(
+    job_id: int,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> BackgroundJobResponse:
+    item = db.get(BackgroundJobModel, job_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return to_background_job_response(item)
+
+
 @app.get("/audit-events", response_model=list[AuditEvent])
-def list_audit_events(db: Session = Depends(get_db)) -> list[AuditEvent]:
-    events = db.scalars(select(AuditEventModel).order_by(desc(AuditEventModel.created_at)).limit(200)).all()
+def list_audit_events(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[AuditEvent]:
+    events = db.scalars(
+        select(AuditEventModel).order_by(desc(AuditEventModel.created_at)).offset(offset).limit(limit)
+    ).all()
     return [
         AuditEvent(
             event_type=item.event_type,
@@ -666,19 +1099,33 @@ def list_audit_events(db: Session = Depends(get_db)) -> list[AuditEvent]:
 
 
 @app.get("/adapters", response_model=list[AdapterConfigResponse])
-def list_adapters(db: Session = Depends(get_db)) -> list[AdapterConfigResponse]:
-    items = db.scalars(select(AdapterConfigModel).order_by(AdapterConfigModel.name)).all()
-    return [AdapterConfigResponse.model_validate(item) for item in items]
+def list_adapters(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[AdapterConfigResponse]:
+    items = db.scalars(select(AdapterConfigModel).order_by(AdapterConfigModel.name).offset(offset).limit(limit)).all()
+    return [to_adapter_config_response(item) for item in items]
 
 
 @app.get("/adapters/health", response_model=list[AdapterHealthResponse])
-def list_adapter_health(db: Session = Depends(get_db)) -> list[AdapterHealthResponse]:
-    items = db.scalars(select(AdapterConfigModel).order_by(AdapterConfigModel.name)).all()
+def list_adapter_health(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[AdapterHealthResponse]:
+    items = db.scalars(select(AdapterConfigModel).order_by(AdapterConfigModel.name).offset(offset).limit(limit)).all()
     return [probe_adapter_health(item) for item in items]
 
 
 @app.get("/adapters/{name}/health", response_model=AdapterHealthResponse)
-def adapter_health(name: str, db: Session = Depends(get_db)) -> AdapterHealthResponse:
+def adapter_health(
+    name: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> AdapterHealthResponse:
     item = db.scalar(select(AdapterConfigModel).where(AdapterConfigModel.name == name))
     if item is None:
         raise HTTPException(status_code=404, detail="Adapter config not found")
@@ -689,35 +1136,51 @@ def adapter_health(name: str, db: Session = Depends(get_db)) -> AdapterHealthRes
 def upsert_adapter(
     name: str,
     payload: AdapterConfigUpsert,
+    _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> AdapterConfigResponse:
     item = db.scalar(select(AdapterConfigModel).where(AdapterConfigModel.name == name))
+    incoming_settings = payload.settings or {}
+
     if item is None:
+        if isinstance(incoming_settings.get("token"), str) and incoming_settings.get("token") == ADAPTER_TOKEN_MASK:
+            incoming_settings = {**incoming_settings, "token": ""}
+        _validate_adapter_base_url(incoming_settings)
         item = AdapterConfigModel(
             name=name,
             adapter=payload.adapter or "fortigate",
             is_active=True if payload.is_active is None else payload.is_active,
-            settings=payload.settings or {},
+            settings=incoming_settings,
         )
         db.add(item)
         db.commit()
         db.refresh(item)
-        return AdapterConfigResponse.model_validate(item)
+        return to_adapter_config_response(item)
 
     if payload.adapter is not None:
         item.adapter = payload.adapter
     if payload.is_active is not None:
         item.is_active = payload.is_active
     if payload.settings is not None:
-        item.settings = payload.settings
+        current_settings = item.settings or {}
+        merged_settings = {**current_settings, **incoming_settings}
+        incoming_token = incoming_settings.get("token")
+        if isinstance(incoming_token, str) and (incoming_token.strip() == "" or incoming_token == ADAPTER_TOKEN_MASK):
+            merged_settings["token"] = current_settings.get("token", "")
+        _validate_adapter_base_url(merged_settings)
+        item.settings = merged_settings
     item.updated_at = utcnow()
     db.commit()
     db.refresh(item)
-    return AdapterConfigResponse.model_validate(item)
+    return to_adapter_config_response(item)
 
 
 @app.delete("/adapters/{name}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_adapter(name: str, db: Session = Depends(get_db)) -> None:
+def delete_adapter(
+    name: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> None:
     item = db.scalar(select(AdapterConfigModel).where(AdapterConfigModel.name == name))
     if item is None:
         raise HTTPException(status_code=404, detail="Adapter config not found")
@@ -726,13 +1189,22 @@ def delete_adapter(name: str, db: Session = Depends(get_db)) -> None:
 
 
 @app.get("/objects/ip-objects", response_model=list[IpObjectResponse])
-def list_ip_objects(db: Session = Depends(get_db)) -> list[IpObjectResponse]:
-    items = db.scalars(select(IpObjectModel).order_by(IpObjectModel.name)).all()
+def list_ip_objects(
+    limit: int = Query(default=200, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[IpObjectResponse]:
+    items = db.scalars(select(IpObjectModel).order_by(IpObjectModel.name).offset(offset).limit(limit)).all()
     return [to_ip_object_response(item) for item in items]
 
 
 @app.post("/objects/ip-objects", response_model=IpObjectResponse, status_code=status.HTTP_201_CREATED)
-def create_ip_object(payload: IpObjectCreate, db: Session = Depends(get_db)) -> IpObjectResponse:
+def create_ip_object(
+    payload: IpObjectCreate,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpObjectResponse:
     if payload.object_type not in {"host", "cidr"}:
         raise HTTPException(status_code=422, detail="object_type must be 'host' or 'cidr'")
     existing_name = db.scalar(select(IpObjectModel).where(IpObjectModel.name == payload.name.strip()))
@@ -754,12 +1226,27 @@ def create_ip_object(payload: IpObjectCreate, db: Session = Depends(get_db)) -> 
 
 
 @app.put("/objects/ip-objects/{object_id}", response_model=IpObjectResponse)
-def update_ip_object(object_id: str, payload: IpObjectUpdate, db: Session = Depends(get_db)) -> IpObjectResponse:
+def update_ip_object(
+    object_id: str,
+    payload: IpObjectUpdate,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpObjectResponse:
     item = find_object_by_id(db, object_id)
     if item is None:
         raise HTTPException(status_code=404, detail="IP object not found")
     if payload.object_type and payload.object_type not in {"host", "cidr"}:
         raise HTTPException(status_code=422, detail="object_type must be 'host' or 'cidr'")
+
+    effective_object_type = payload.object_type or item.object_type
+    if payload.value is not None:
+        try:
+            if effective_object_type == "cidr":
+                ipaddress.ip_network(payload.value, strict=False)
+            else:
+                ipaddress.ip_address(payload.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid IP value for object_type '{effective_object_type}'") from exc
 
     if payload.name is not None:
         item.name = payload.name.strip()
@@ -776,7 +1263,11 @@ def update_ip_object(object_id: str, payload: IpObjectUpdate, db: Session = Depe
 
 
 @app.delete("/objects/ip-objects/{object_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_ip_object(object_id: str, db: Session = Depends(get_db)) -> None:
+def delete_ip_object(
+    object_id: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> None:
     item = find_object_by_id(db, object_id)
     if item is None:
         raise HTTPException(status_code=404, detail="IP object not found")
@@ -785,13 +1276,22 @@ def delete_ip_object(object_id: str, db: Session = Depends(get_db)) -> None:
 
 
 @app.get("/objects/ip-groups", response_model=list[IpGroupResponse])
-def list_ip_groups(db: Session = Depends(get_db)) -> list[IpGroupResponse]:
-    items = db.scalars(select(IpGroupModel).order_by(IpGroupModel.name)).all()
+def list_ip_groups(
+    limit: int = Query(default=200, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0, le=100000),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[IpGroupResponse]:
+    items = db.scalars(select(IpGroupModel).order_by(IpGroupModel.name).offset(offset).limit(limit)).all()
     return [to_ip_group_response(item) for item in items]
 
 
 @app.post("/objects/ip-groups", response_model=IpGroupResponse, status_code=status.HTTP_201_CREATED)
-def create_ip_group(payload: IpGroupCreate, db: Session = Depends(get_db)) -> IpGroupResponse:
+def create_ip_group(
+    payload: IpGroupCreate,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpGroupResponse:
     existing = find_group_by_name(db, payload.name.strip())
     if existing is not None:
         raise HTTPException(status_code=409, detail="An IP group with this name already exists")
@@ -802,7 +1302,12 @@ def create_ip_group(payload: IpGroupCreate, db: Session = Depends(get_db)) -> Ip
 
 
 @app.put("/objects/ip-groups/{group_id}", response_model=IpGroupResponse)
-def update_ip_group(group_id: str, payload: IpGroupUpdate, db: Session = Depends(get_db)) -> IpGroupResponse:
+def update_ip_group(
+    group_id: str,
+    payload: IpGroupUpdate,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpGroupResponse:
     group = db.scalar(select(IpGroupModel).where(IpGroupModel.group_id == group_id))
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
@@ -817,7 +1322,11 @@ def update_ip_group(group_id: str, payload: IpGroupUpdate, db: Session = Depends
 
 
 @app.delete("/objects/ip-groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_ip_group(group_id: str, db: Session = Depends(get_db)) -> None:
+def delete_ip_group(
+    group_id: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> None:
     group = db.scalar(select(IpGroupModel).where(IpGroupModel.group_id == group_id))
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
@@ -826,7 +1335,12 @@ def delete_ip_group(group_id: str, db: Session = Depends(get_db)) -> None:
 
 
 @app.post("/objects/ip-groups/{group_name}/members", response_model=IpGroupResponse)
-def add_group_member(group_name: str, payload: IpGroupMemberAddRequest, db: Session = Depends(get_db)) -> IpGroupResponse:
+def add_group_member(
+    group_name: str,
+    payload: IpGroupMemberAddRequest,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpGroupResponse:
     group = find_group_by_name(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
@@ -840,7 +1354,12 @@ def add_group_member(group_name: str, payload: IpGroupMemberAddRequest, db: Sess
 
 
 @app.post("/objects/ip-groups/{group_name}/members/ip", response_model=IpGroupResponse)
-def add_ip_address_to_group(group_name: str, payload: IpAddressMembershipRequest, db: Session = Depends(get_db)) -> IpGroupResponse:
+def add_ip_address_to_group(
+    group_name: str,
+    payload: IpAddressMembershipRequest,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpGroupResponse:
     group = ensure_ip_group(db, group_name)
     object_name = f"endpoint-{payload.endpoint_id}" if payload.endpoint_id else f"ip-{payload.ip_address.replace('.', '-')}"
     ip_object = ensure_ip_object(
@@ -858,7 +1377,12 @@ def add_ip_address_to_group(group_name: str, payload: IpAddressMembershipRequest
 
 
 @app.delete("/objects/ip-groups/{group_name}/members/ip/{ip_address}", response_model=IpGroupResponse)
-def remove_ip_address_from_group(group_name: str, ip_address: str, db: Session = Depends(get_db)) -> IpGroupResponse:
+def remove_ip_address_from_group(
+    group_name: str,
+    ip_address: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpGroupResponse:
     group = find_group_by_name(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
@@ -871,7 +1395,12 @@ def remove_ip_address_from_group(group_name: str, ip_address: str, db: Session =
 
 
 @app.delete("/objects/ip-groups/{group_name}/members/{object_id}", response_model=IpGroupResponse)
-def remove_group_member(group_name: str, object_id: str, db: Session = Depends(get_db)) -> IpGroupResponse:
+def remove_group_member(
+    group_name: str,
+    object_id: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> IpGroupResponse:
     group = find_group_by_name(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")

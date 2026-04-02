@@ -1,6 +1,7 @@
 import type {
   AdapterConfig,
   AdapterProfileHealth,
+  AuthProvider,
   AuditEvent,
   ComplianceDecision,
   ConditionGroup,
@@ -8,11 +9,15 @@ import type {
   EnforcementResult,
   IpGroup,
   IpObject,
+  LoginResponse,
   PolicyActionType,
   Policy,
   PolicyAssignment,
+  ProviderTestResult,
   ServiceStatus,
-  TelemetryRecordResponse
+  TelemetryRecordResponse,
+  UserAccount,
+  SessionUser
 } from "@/types/platform";
 
 function defaultServiceUrl(port: number): string {
@@ -28,20 +33,35 @@ const TELEMETRY_API_URL = process.env.NEXT_PUBLIC_TELEMETRY_API_URL ?? defaultSe
 const POLICY_SERVICE_URL = process.env.NEXT_PUBLIC_POLICY_SERVICE_URL ?? defaultServiceUrl(8002);
 const EVALUATION_ENGINE_URL = process.env.NEXT_PUBLIC_EVALUATION_ENGINE_URL ?? defaultServiceUrl(8003);
 const ENFORCEMENT_SERVICE_URL = process.env.NEXT_PUBLIC_ENFORCEMENT_SERVICE_URL ?? defaultServiceUrl(8004);
+const SHARED_API_KEY = process.env.NEXT_PUBLIC_POSTURE_API_KEY ?? "";
 
-async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+type FetchJsonOptions = {
+  includeCredentials?: boolean;
+};
+
+function shouldUsePolicySessionCookie(input: RequestInfo | URL): boolean {
+  const rawUrl = typeof input === "string" ? input : input.toString();
+  return rawUrl.startsWith(POLICY_SERVICE_URL);
+}
+
+async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, options?: FetchJsonOptions): Promise<T> {
+  const authHeaders =
+    SHARED_API_KEY.trim().length > 0 ? ({ "X-API-Key": SHARED_API_KEY.trim() } as Record<string, string>) : {};
+  const includeCredentials = options?.includeCredentials ?? shouldUsePolicySessionCookie(input);
   const response = await fetch(input, {
     ...init,
     headers: {
+      ...authHeaders,
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {})
     },
+    credentials: includeCredentials ? "include" : "same-origin",
     cache: "no-store"
   });
 
   if (!response.ok) {
     const raw = await response.text();
-    if (raw) {
+    if (raw && response.status < 500) {
       try {
         const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
         const detail =
@@ -50,10 +70,13 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
             : typeof parsed.message === "string"
               ? parsed.message
               : null;
-        throw new Error(detail ?? raw);
+        throw new Error(detail ?? "Request failed");
       } catch {
-        throw new Error(raw);
+        throw new Error("Request failed");
       }
+    }
+    if (response.status >= 500) {
+      throw new Error(`Server error (${response.status}). Please check backend logs for details.`);
     }
     throw new Error(`Request failed with status ${response.status}`);
   }
@@ -91,6 +114,16 @@ export const api = {
     return fetchJson<EndpointSummary[]>(`${TELEMETRY_API_URL}/endpoints`);
   },
 
+  getLatestTelemetryBatch(endpointIds: string[], options?: { includeRaw?: boolean }) {
+    if (endpointIds.length === 0) {
+      return Promise.resolve([] as TelemetryRecordResponse[]);
+    }
+    const params = new URLSearchParams();
+    endpointIds.forEach((endpointId) => params.append("endpoint_id", endpointId));
+    params.set("include_raw", options?.includeRaw ? "true" : "false");
+    return fetchJson<TelemetryRecordResponse[]>(`${TELEMETRY_API_URL}/endpoints/latest-batch?${params.toString()}`);
+  },
+
   getLatestTelemetry(endpointId: string) {
     return fetchJson<TelemetryRecordResponse>(`${TELEMETRY_API_URL}/endpoints/${endpointId}/latest`);
   },
@@ -101,6 +134,17 @@ export const api = {
 
   listPolicies() {
     return fetchJson<Policy[]>(`${POLICY_SERVICE_URL}/policies`);
+  },
+
+  getEndpointAssignedPolicies(endpointId: string) {
+    return fetchJson<Array<{
+      policy_id: number;
+      policy_name: string;
+      policy_scope: "posture" | "lifecycle";
+      lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+      assignment_type: "endpoint" | "group" | "default";
+      assignment_value: string;
+    }>>(`${POLICY_SERVICE_URL}/endpoints/${endpointId}/assigned-policies`);
   },
 
   getPolicy(policyId: number) {
@@ -206,6 +250,49 @@ export const api = {
     return fetchJson<Policy | null>(`${POLICY_SERVICE_URL}/policy-match/${endpointId}`);
   },
 
+  resolvePolicyBatch(endpointIds: string[], groups: string[] = []) {
+    if (endpointIds.length === 0) {
+      return Promise.resolve({} as Record<string, Policy | null>);
+    }
+    const params = new URLSearchParams();
+    endpointIds.forEach((endpointId) => params.append("endpoint_id", endpointId));
+    groups.forEach((group) => params.append("groups", group));
+    return fetchJson<Record<string, Policy | null>>(`${POLICY_SERVICE_URL}/policy-match-batch?${params.toString()}`);
+  },
+
+  getEndpointAssignedPoliciesBatch(endpointIds: string[]) {
+    if (endpointIds.length === 0) {
+      return Promise.resolve(
+        {} as Record<
+          string,
+          Array<{
+            policy_id: number;
+            policy_name: string;
+            policy_scope: "posture" | "lifecycle";
+            lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+            assignment_type: "endpoint" | "group" | "default";
+            assignment_value: string;
+          }>
+        >
+      );
+    }
+    const params = new URLSearchParams();
+    endpointIds.forEach((endpointId) => params.append("endpoint_id", endpointId));
+    return fetchJson<
+      Record<
+        string,
+        Array<{
+          policy_id: number;
+          policy_name: string;
+          policy_scope: "posture" | "lifecycle";
+          lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+          assignment_type: "endpoint" | "group" | "default";
+          assignment_value: string;
+        }>
+      >
+    >(`${POLICY_SERVICE_URL}/endpoints/assigned-policies-batch?${params.toString()}`);
+  },
+
   evaluateEndpoint(endpointId: string) {
     return fetchJson<ComplianceDecision>(`${EVALUATION_ENGINE_URL}/evaluate/${endpointId}`, {
       method: "POST"
@@ -216,12 +303,32 @@ export const api = {
     return fetchJson<ComplianceDecision>(`${EVALUATION_ENGINE_URL}/results/${endpointId}/latest`);
   },
 
+  getLatestDecisionBatch(endpointIds: string[]) {
+    if (endpointIds.length === 0) {
+      return Promise.resolve({} as Record<string, ComplianceDecision | null>);
+    }
+    const params = new URLSearchParams();
+    endpointIds.forEach((endpointId) => params.append("endpoint_id", endpointId));
+    return fetchJson<Record<string, ComplianceDecision | null>>(`${EVALUATION_ENGINE_URL}/results/latest-batch?${params.toString()}`);
+  },
+
   getDecisionHistory(endpointId: string) {
     return fetchJson<ComplianceDecision[]>(`${EVALUATION_ENGINE_URL}/results/${endpointId}`);
   },
 
   getLatestEnforcement(endpointId: string) {
     return fetchJson<EnforcementResult>(`${ENFORCEMENT_SERVICE_URL}/enforcement/${endpointId}/latest`);
+  },
+
+  getLatestEnforcementBatch(endpointIds: string[]) {
+    if (endpointIds.length === 0) {
+      return Promise.resolve({} as Record<string, EnforcementResult | null>);
+    }
+    const params = new URLSearchParams();
+    endpointIds.forEach((endpointId) => params.append("endpoint_id", endpointId));
+    return fetchJson<Record<string, EnforcementResult | null>>(
+      `${ENFORCEMENT_SERVICE_URL}/enforcement/latest-batch?${params.toString()}`
+    );
   },
 
   listAuditEvents() {
@@ -358,5 +465,123 @@ export const api = {
       safeFetchStatus("Evaluation Engine", EVALUATION_ENGINE_URL),
       safeFetchStatus("Enforcement Service", ENFORCEMENT_SERVICE_URL)
     ]);
+  },
+
+  login(payload: { username: string; password: string }) {
+    return fetchJson<LoginResponse>(`${POLICY_SERVICE_URL}/auth/login`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  getCurrentSessionUser() {
+    return fetchJson<SessionUser>(`${POLICY_SERVICE_URL}/auth/me`);
+  },
+
+  logout() {
+    return fetchJson<{ status: string }>(`${POLICY_SERVICE_URL}/auth/logout`, {
+      method: "POST"
+    });
+  },
+
+  listAuthProviders() {
+    return fetchJson<AuthProvider[]>(`${POLICY_SERVICE_URL}/auth/providers`);
+  },
+
+  listEnabledAuthProviders() {
+    return fetchJson<AuthProvider[]>(`${POLICY_SERVICE_URL}/auth/providers/enabled`);
+  },
+
+  createAuthProvider(payload: {
+    name: string;
+    protocol: "ldap" | "radius" | "oidc" | "oauth2" | "saml";
+    is_enabled: boolean;
+    priority: number;
+    settings: Record<string, unknown>;
+  }) {
+    return fetchJson<AuthProvider>(`${POLICY_SERVICE_URL}/auth/providers`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  updateAuthProvider(
+    providerId: number,
+    payload: Partial<{
+      name: string;
+      protocol: "ldap" | "radius" | "oidc" | "oauth2" | "saml";
+      is_enabled: boolean;
+      priority: number;
+      settings: Record<string, unknown>;
+    }>
+  ) {
+    return fetchJson<AuthProvider>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  deleteAuthProvider(providerId: number) {
+    return fetchJson<void>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}`, {
+      method: "DELETE"
+    });
+  },
+
+  testAuthProviderConnectivity(providerId: number) {
+    return fetchJson<ProviderTestResult>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}/test-connectivity`, {
+      method: "POST"
+    });
+  },
+
+  testAuthProviderCredentials(providerId: number, payload: { username: string; password: string }) {
+    return fetchJson<ProviderTestResult>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}/test-credentials`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  listUsers() {
+    return fetchJson<UserAccount[]>(`${POLICY_SERVICE_URL}/admin/users`);
+  },
+
+  createUser(payload: {
+    username: string;
+    full_name: string | null;
+    email: string | null;
+    is_active: boolean;
+    auth_source: "local" | "ldap" | "radius" | "oidc" | "oauth2" | "saml";
+    password?: string | null;
+    external_subject?: string | null;
+    external_groups?: string[];
+    roles?: string[];
+  }) {
+    return fetchJson<UserAccount>(`${POLICY_SERVICE_URL}/admin/users`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  updateUser(
+    userId: number,
+    payload: Partial<{
+      full_name: string | null;
+      email: string | null;
+      is_active: boolean;
+      password: string;
+      external_subject: string | null;
+      external_groups: string[];
+      roles: string[];
+    }>
+  ) {
+    return fetchJson<UserAccount>(`${POLICY_SERVICE_URL}/admin/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  deleteUser(userId: number) {
+    return fetchJson<void>(`${POLICY_SERVICE_URL}/admin/users/${userId}`, {
+      method: "DELETE"
+    });
   }
 };

@@ -1,8 +1,26 @@
+"use client";
+
 import type { PropsWithChildren } from "react";
+import { LoginScreen } from "@/components/auth/login-screen";
+import { useAuth } from "@/components/auth/auth-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 
 export function AppShell({ children }: PropsWithChildren) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-shell text-slate-300">
+        Loading authentication...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
   return (
     <div className="flex min-h-screen bg-shell text-slate-100">
       <Sidebar />

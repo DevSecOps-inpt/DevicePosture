@@ -166,6 +166,7 @@ export interface EndpointView {
   secondsSinceSeen: number | null;
   policyName: string | null;
   policyId: number | null;
+  assignedPolicies: Array<{ id: number; name: string }>;
   healthScore: number | null;
   latestTelemetry: TelemetryRecordResponse | null;
   latestDecision: ComplianceDecision | null;
@@ -229,4 +230,49 @@ export interface ConditionGroup {
   values: string[];
   created_at: string;
   updated_at: string;
+}
+
+export type AuthProtocol = "local" | "ldap" | "radius" | "oidc" | "oauth2" | "saml";
+
+export interface AuthProvider {
+  id: number;
+  name: string;
+  protocol: Exclude<AuthProtocol, "local">;
+  is_enabled: boolean;
+  priority: number;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  message: string;
+  details: Record<string, unknown>;
+}
+
+export interface UserAccount {
+  id: number;
+  username: string;
+  full_name: string | null;
+  email: string | null;
+  is_active: boolean;
+  auth_source: AuthProtocol;
+  external_subject: string | null;
+  external_groups: string[];
+  roles: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionUser {
+  username: string;
+  full_name: string | null;
+  auth_source: AuthProtocol;
+  roles: string[];
+}
+
+export interface LoginResponse {
+  expires_at: string;
+  user: SessionUser;
 }

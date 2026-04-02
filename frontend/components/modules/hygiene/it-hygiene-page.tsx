@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCcw, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSmartPolling } from "@/hooks/use-smart-polling";
 import type { EndpointActivityStatus, TelemetryRecordResponse } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
@@ -40,6 +41,14 @@ function normalizeAntivirusFamilies(telemetry: TelemetryRecordResponse | null): 
   return Array.from(new Set(fromProducts.filter(Boolean)));
 }
 
+function readPayloadCount(payload: TelemetryRecordResponse["raw_payload"] | undefined, key: string, fallbackArrayKey: "hotfixes" | "services" | "processes" | "antivirus_products") {
+  const value = payload?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return payload?.[fallbackArrayKey]?.length ?? 0;
+}
+
 export function ItHygienePage() {
   const router = useRouter();
   const { pushToast } = useToast();
@@ -54,13 +63,11 @@ export function ItHygienePage() {
     }
     try {
       const endpoints = await api.listEndpoints();
-      const telemetryByEndpoint = await Promise.all(
-        endpoints.map((endpoint) =>
-          api.getLatestTelemetry(endpoint.endpoint_id).catch(() => null)
-        )
-      );
-      const nextRows: HygieneRow[] = endpoints.map((endpoint, index) => {
-        const telemetry = telemetryByEndpoint[index];
+      const endpointIds = endpoints.map((item) => item.endpoint_id);
+      const telemetryBatch = await api.getLatestTelemetryBatch(endpointIds, { includeRaw: false }).catch(() => []);
+      const telemetryByEndpoint = Object.fromEntries(telemetryBatch.map((item) => [item.endpoint_id, item]));
+      const nextRows: HygieneRow[] = endpoints.map((endpoint) => {
+        const telemetry = telemetryByEndpoint[endpoint.endpoint_id] ?? null;
         return {
           endpointId: endpoint.endpoint_id,
           hostname: endpoint.hostname,
@@ -69,9 +76,9 @@ export function ItHygienePage() {
           ipAddress: telemetry?.core_ipv4 ?? null,
           osName: telemetry?.core_os_name ?? null,
           osBuild: telemetry?.core_os_build ?? null,
-          hotfixCount: telemetry?.raw_payload.hotfixes?.length ?? 0,
-          serviceCount: telemetry?.raw_payload.services?.length ?? 0,
-          processCount: telemetry?.raw_payload.processes?.length ?? 0,
+          hotfixCount: readPayloadCount(telemetry?.raw_payload, "hotfixes_count", "hotfixes"),
+          serviceCount: readPayloadCount(telemetry?.raw_payload, "services_count", "services"),
+          processCount: readPayloadCount(telemetry?.raw_payload, "processes_count", "processes"),
           antivirusFamilies: normalizeAntivirusFamilies(telemetry),
           enabledCollectors: telemetry?.raw_payload.agent?.enabled_collectors ?? [],
           transportEnabled: telemetry?.raw_payload.agent?.transport_enabled ?? null,
@@ -96,11 +103,8 @@ export function ItHygienePage() {
 
   useEffect(() => {
     void loadData();
-    const timer = window.setInterval(() => {
-      void loadData({ silent: true });
-    }, 5000);
-    return () => window.clearInterval(timer);
   }, []);
+  useSmartPolling(() => loadData({ silent: true }), { visibleIntervalMs: 12000, hiddenIntervalMs: 60000, runImmediately: false });
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {

@@ -45,8 +45,9 @@ export function buildEndpointView(args: {
   policy: Policy | null;
   decision: ComplianceDecision | null;
   enforcement: EndpointView["latestEnforcement"];
+  assignedPolicies?: Array<{ id: number; name: string }>;
 }): EndpointView {
-  const { endpoint, telemetry, policy, decision, enforcement } = args;
+  const { endpoint, telemetry, policy, decision, enforcement, assignedPolicies } = args;
   return {
     endpointId: endpoint.endpoint_id,
     hostname: endpoint.hostname,
@@ -62,6 +63,7 @@ export function buildEndpointView(args: {
     secondsSinceSeen: endpoint.seconds_since_seen,
     policyName: policy?.name ?? decision?.policy_name ?? null,
     policyId: policy?.id ?? decision?.policy_id ?? null,
+    assignedPolicies: assignedPolicies ?? [],
     healthScore: endpoint.activity_status === "inactive" ? 0 : scoreFromDecision(decision),
     latestTelemetry: telemetry,
     latestDecision: decision,

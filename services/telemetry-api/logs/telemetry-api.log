@@ -4657,3 +4657,127 @@
 2026-04-02 01:38:40,200 INFO [telemetry-api] listed 2 endpoints
 2026-04-02 01:38:40,413 INFO [telemetry-api] listed 2 endpoints
 2026-04-02 01:38:45,394 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:27:41,267 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-02 23:27:41,282 INFO [telemetry-api] telemetry-api database initialized
+2026-04-02 23:28:22,386 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:22,390 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:26,290 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:27,785 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:27,788 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:34,132 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:37,854 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:42,716 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:28:47,704 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:39,158 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:39,161 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:44,226 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:48,821 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:51,635 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:51,636 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:29:56,339 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:30:01,340 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:30:06,335 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:30:11,340 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:30:21,528 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:30:21,544 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:54:48,281 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-02 23:54:48,286 INFO [telemetry-api] telemetry-api database initialized
+2026-04-02 23:57:25,666 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:25,670 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:30,252 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:35,251 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:40,256 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:45,263 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:50,263 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:57:55,296 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:00,257 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:05,260 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:10,257 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:15,274 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:20,885 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:25,254 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:30,278 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:35,315 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:40,249 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:45,255 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:50,261 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:58:55,578 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:00,270 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:05,662 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:10,256 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:15,421 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:20,945 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:25,262 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:30,448 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:35,746 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:40,252 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:45,293 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:50,252 INFO [telemetry-api] listed 2 endpoints
+2026-04-02 23:59:55,259 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:00,256 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:06,245 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:11,225 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:16,215 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:21,261 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:26,889 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:31,985 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:36,382 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:41,215 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:46,568 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:51,228 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:00:57,135 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:01:01,692 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:01:52,970 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:02:52,776 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:03:52,400 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:04:52,802 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:05:55,885 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:06:52,639 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:07:52,457 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:08:52,529 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:09:53,050 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:10:53,789 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:11:52,458 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:12:52,634 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:13:52,626 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:23:25,436 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-03 00:23:25,988 INFO [telemetry-api] telemetry-api database initialized
+2026-04-03 00:24:09,222 INFO [telemetry-api] request_id=b2896980-e2c3-430f-b742-d5db9712bcdf method=GET path=/healthz status=200 duration_ms=44.61
+2026-04-03 00:24:09,277 INFO [telemetry-api] request_id=9969fdb0-87a6-4172-9b67-9104a1b7b6b7 method=GET path=/healthz status=200 duration_ms=126.53
+2026-04-03 00:24:09,475 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:09,476 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:09,479 INFO [telemetry-api] request_id=5b307be9-61f2-47b5-8334-79693c259bbd method=GET path=/endpoints status=200 duration_ms=322.42
+2026-04-03 00:24:09,480 INFO [telemetry-api] request_id=358e29e0-2bc2-4356-8d2f-bbde02a11970 method=GET path=/endpoints status=200 duration_ms=399.37
+2026-04-03 00:24:13,900 INFO [telemetry-api] request_id=d6e69683-d2ee-4549-b227-a516df77baf9 method=GET path=/endpoints/latest-batch status=200 duration_ms=4404.55
+2026-04-03 00:24:13,983 INFO [telemetry-api] request_id=553f7f92-2b1c-4f78-86de-a09fd64d6c29 method=GET path=/endpoints/latest-batch status=200 duration_ms=4485.67
+2026-04-03 00:24:18,422 INFO [telemetry-api] request_id=97bcfdc9-fe67-478a-a65c-c1b164e7703d method=GET path=/healthz status=200 duration_ms=2.20
+2026-04-03 00:24:18,424 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:18,426 INFO [telemetry-api] request_id=31e2ad3f-3051-4b3d-b36d-bcbb9eb7d183 method=GET path=/endpoints status=200 duration_ms=9.04
+2026-04-03 00:24:20,328 INFO [telemetry-api] request_id=47408d40-a14f-404b-a642-ecbf67c210d8 method=GET path=/endpoints/latest-batch status=200 duration_ms=1851.82
+2026-04-03 00:24:20,345 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:20,346 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:20,367 INFO [telemetry-api] request_id=7f29e876-be35-4959-b6b4-7a00ef86d0ae method=GET path=/endpoints status=200 duration_ms=30.58
+2026-04-03 00:24:20,368 INFO [telemetry-api] request_id=77852abd-d61f-48d9-9b77-79f30db5db5e method=GET path=/endpoints status=200 duration_ms=30.50
+2026-04-03 00:24:23,551 INFO [telemetry-api] request_id=51261950-1c4d-4796-9b14-7e38a2820ac1 method=GET path=/endpoints/latest-batch status=200 duration_ms=3176.55
+2026-04-03 00:24:23,565 INFO [telemetry-api] request_id=132e8a19-4d8e-43da-bea5-c2939d0c2e97 method=GET path=/endpoints/latest-batch status=200 duration_ms=3182.54
+2026-04-03 00:24:34,215 INFO [telemetry-api] request_id=bb81b090-f2db-4ad8-9264-99c3c8ae34c4 method=GET path=/healthz status=200 duration_ms=19.05
+2026-04-03 00:24:34,222 INFO [telemetry-api] request_id=4b064142-2ded-4abb-b34b-f06d23a8d72d method=GET path=/healthz status=200 duration_ms=1.06
+2026-04-03 00:24:34,229 INFO [telemetry-api] request_id=f35b3776-0b4a-4308-bd9e-ca7fa2bffe60 method=GET path=/healthz status=200 duration_ms=0.95
+2026-04-03 00:24:47,487 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:47,489 INFO [telemetry-api] request_id=9ea9a715-8e2e-44b0-84ae-e0f4b44e7655 method=GET path=/endpoints status=200 duration_ms=33.89
+2026-04-03 00:24:47,496 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:47,497 INFO [telemetry-api] request_id=dd807f55-f7e3-4699-8687-3ae9a0d7927b method=GET path=/endpoints status=200 duration_ms=5.21
+2026-04-03 00:24:50,009 INFO [telemetry-api] request_id=7a3e8e90-8c7f-499d-bd3f-ba18d0b32eb5 method=GET path=/endpoints/latest-batch status=200 duration_ms=2509.52
+2026-04-03 00:24:51,246 INFO [telemetry-api] request_id=27fde02a-cd35-41a4-8abb-ce362a4b0681 method=GET path=/endpoints/latest-batch status=200 duration_ms=3039.17
+2026-04-03 00:24:53,565 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:53,566 INFO [telemetry-api] listed 2 endpoints
+2026-04-03 00:24:53,567 INFO [telemetry-api] request_id=a38d0892-52c0-4304-b2a8-9cad39912fc6 method=GET path=/endpoints status=200 duration_ms=8.78
+2026-04-03 00:24:53,569 INFO [telemetry-api] request_id=adee90aa-f67b-40a9-94bd-d18e7d48e211 method=GET path=/endpoints status=200 duration_ms=8.16
+2026-04-03 00:24:53,665 INFO [telemetry-api] request_id=12d758fe-66a2-4656-b9e2-426b0b46b7f4 method=GET path=/endpoints/1a729af9-d048-4900-b9cd-011ce789d46c/history status=200 duration_ms=85.40
+2026-04-03 00:24:53,702 INFO [telemetry-api] request_id=d7b2456a-a380-459c-a6c9-bb6b7ad868fc method=GET path=/endpoints/1a729af9-d048-4900-b9cd-011ce789d46c/history status=200 duration_ms=104.38
+2026-04-03 00:24:57,135 INFO [telemetry-api] request_id=cb02356d-5815-4e8a-a6d6-e81dfe5b92cd method=GET path=/endpoints/1a729af9-d048-4900-b9cd-011ce789d46c/latest status=200 duration_ms=3545.55
+2026-04-03 00:24:57,239 INFO [telemetry-api] request_id=648ad6dc-8abe-4b24-b4fa-5496944c567d method=GET path=/endpoints/1a729af9-d048-4900-b9cd-011ce789d46c/latest status=200 duration_ms=3667.33
+2026-04-03 00:41:14,882 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-03 00:41:14,900 INFO [telemetry-api] telemetry-api database initialized
+2026-04-03 00:45:43,259 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-03 00:45:43,279 INFO [telemetry-api] telemetry-api database initialized

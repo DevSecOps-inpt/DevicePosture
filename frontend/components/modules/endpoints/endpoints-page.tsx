@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCcw, ShieldAlert } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSmartPolling } from "@/hooks/use-smart-polling";
 import { buildEndpointView } from "@/lib/platform-data";
-import type { EndpointView } from "@/types/platform";
+import type { ComplianceDecision, EnforcementResult, EndpointView, Policy } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -33,23 +34,43 @@ export function EndpointsPage() {
     }
     try {
       const endpointSummaries = await api.listEndpoints();
-      const views: EndpointView[] = [];
+      const endpointIds = endpointSummaries.map((item) => item.endpoint_id);
+      const [telemetryBatch, decisionBatch, policyBatch, enforcementBatch, assignmentsBatch] = await Promise.all([
+        api.getLatestTelemetryBatch(endpointIds, { includeRaw: false }).catch(() => []),
+        api.getLatestDecisionBatch(endpointIds).catch(() => ({} as Record<string, ComplianceDecision | null>)),
+        api.resolvePolicyBatch(endpointIds).catch(() => ({} as Record<string, Policy | null>)),
+        api.getLatestEnforcementBatch(endpointIds).catch(() => ({} as Record<string, EnforcementResult | null>)),
+        api.getEndpointAssignedPoliciesBatch(endpointIds).catch(
+          () =>
+            ({} as Record<
+              string,
+              Array<{
+                policy_id: number;
+                policy_name: string;
+                policy_scope: "posture" | "lifecycle";
+                lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+                assignment_type: "endpoint" | "group" | "default";
+                assignment_value: string;
+              }>
+            >)
+        )
+      ]);
 
-      for (const endpoint of endpointSummaries) {
-        const telemetry = await api.getLatestTelemetry(endpoint.endpoint_id).catch(() => null);
-        const decision = await api.getLatestDecision(endpoint.endpoint_id).catch(() => null);
-        const policy = await api.resolvePolicy(endpoint.endpoint_id).catch(() => null);
-        const enforcement = await api.getLatestEnforcement(endpoint.endpoint_id).catch(() => null);
-        views.push(
-          buildEndpointView({
-            endpoint,
-            telemetry,
-            policy,
-            decision,
-            enforcement
-          })
-        );
-      }
+      const telemetryByEndpoint = Object.fromEntries(telemetryBatch.map((item) => [item.endpoint_id, item]));
+      const views: EndpointView[] = endpointSummaries.map((endpoint) => {
+        const assignedPolicies = (assignmentsBatch[endpoint.endpoint_id] ?? []).map((item) => ({
+          id: item.policy_id,
+          name: item.policy_name
+        }));
+        return buildEndpointView({
+          endpoint,
+          telemetry: telemetryByEndpoint[endpoint.endpoint_id] ?? null,
+          policy: policyBatch[endpoint.endpoint_id] ?? null,
+          decision: decisionBatch[endpoint.endpoint_id] ?? null,
+          enforcement: enforcementBatch[endpoint.endpoint_id] ?? null,
+          assignedPolicies
+        });
+      });
 
       setItems(views);
     } catch (error) {
@@ -69,12 +90,8 @@ export function EndpointsPage() {
 
   useEffect(() => {
     void loadData();
-    const timer = window.setInterval(() => {
-      void loadData({ silent: true });
-    }, 5000);
-
-    return () => window.clearInterval(timer);
   }, []);
+  useSmartPolling(() => loadData({ silent: true }), { visibleIntervalMs: 10000, hiddenIntervalMs: 60000, runImmediately: false });
 
   const osTypes: string[] = [];
   const policyNames: string[] = [];
@@ -117,17 +134,20 @@ export function EndpointsPage() {
     }
 
     let success = 0;
+    const failed: string[] = [];
     for (const endpointId of selected) {
       try {
         await api.evaluateEndpoint(endpointId);
         success += 1;
       } catch (_error) {
+        failed.push(endpointId);
       }
     }
 
     pushToast({
       tone: success === selected.length ? "success" : "info",
-      title: `Evaluated ${success} of ${selected.length} selected endpoints`
+      title: `Evaluated ${success} of ${selected.length} selected endpoints`,
+      description: failed.length > 0 ? `Failed: ${failed.join(", ")}` : undefined
     });
 
     await loadData();
@@ -269,9 +289,13 @@ export function EndpointsPage() {
                 },
                 {
                   id: "policy",
-                  header: "Assigned policy",
-                  cell: (endpoint) => endpoint.policyName ?? "Unassigned",
-                  sortAccessor: (endpoint) => endpoint.policyName ?? ""
+                  header: "Assigned policies",
+                  cell: (endpoint) =>
+                    endpoint.assignedPolicies.length > 0
+                      ? endpoint.assignedPolicies.map((item) => item.name).join(", ")
+                      : endpoint.policyName ?? "Unassigned",
+                  sortAccessor: (endpoint) =>
+                    endpoint.assignedPolicies.map((item) => item.name).join(",") || endpoint.policyName || ""
                 }
               ]}
             />

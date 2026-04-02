@@ -17,6 +17,7 @@ class SystemInfoCollector(CollectorModule):
                   $machineGuid = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name 'MachineGuid'
                 } catch {}
                 $os = Get-CimInstance Win32_OperatingSystem
+                $computerSystem = Get-CimInstance Win32_ComputerSystem
                 $ip = Get-NetIPAddress -AddressFamily IPv4 |
                   Where-Object { $_.IPAddress -notlike '169.254*' -and $_.IPAddress -ne '127.0.0.1' } |
                   Select-Object -First 1 -ExpandProperty IPAddress
@@ -27,6 +28,8 @@ class SystemInfoCollector(CollectorModule):
                   os_name = $os.Caption
                   os_version = $os.Version
                   os_build = $os.BuildNumber
+                  domain_name = $computerSystem.Domain
+                  domain_joined = $computerSystem.PartOfDomain
                 } | ConvertTo-Json -Compress
                 """
             )
@@ -43,5 +46,11 @@ class SystemInfoCollector(CollectorModule):
                 "name": payload.get("os_name"),
                 "version": payload.get("os_version"),
                 "build": str(payload.get("os_build")) if payload.get("os_build") is not None else None,
+            },
+            "extras": {
+                "domain_membership": {
+                    "joined": bool(payload.get("domain_joined")),
+                    "domain_name": payload.get("domain_name"),
+                }
             },
         }

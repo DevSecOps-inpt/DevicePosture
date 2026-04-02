@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, RefreshCcw, ShieldOff, ShieldPlus } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSmartPolling } from "@/hooks/use-smart-polling";
 import { buildEndpointView } from "@/lib/platform-data";
 import type { AuditEvent, ComplianceDecision, EndpointView, Policy, TelemetryRecordResponse } from "@/types/platform";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryRecordResponse[]>([]);
   const [decisionHistory, setDecisionHistory] = useState<ComplianceDecision[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
+  const [assignedPolicies, setAssignedPolicies] = useState<Array<{ id: number; name: string }>>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
@@ -41,7 +43,7 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
         return;
       }
 
-      const [latestTelemetry, latestDecision, resolvedPolicy, latestEnforcement, telemetry, decisions, events, policyItems] =
+      const [latestTelemetry, latestDecision, resolvedPolicy, latestEnforcement, telemetry, decisions, events, policyItems, endpointAssignments] =
         await Promise.all([
           api.getLatestTelemetry(endpointId).catch(() => null),
           api.getLatestDecision(endpointId).catch(() => null),
@@ -50,7 +52,8 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
           api.getTelemetryHistory(endpointId).catch(() => []),
           api.getDecisionHistory(endpointId).catch(() => []),
           api.listAuditEvents().catch(() => []),
-          api.listPolicies().catch(() => [])
+          api.listPolicies().catch(() => []),
+          api.getEndpointAssignedPolicies(endpointId).catch(() => [])
         ]);
 
       setEndpoint(
@@ -59,12 +62,14 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
           telemetry: latestTelemetry,
           policy: resolvedPolicy,
           decision: latestDecision,
-          enforcement: latestEnforcement
+          enforcement: latestEnforcement,
+          assignedPolicies: endpointAssignments.map((item) => ({ id: item.policy_id, name: item.policy_name }))
         })
       );
       setTelemetryHistory(telemetry);
       setDecisionHistory(decisions);
       setPolicy(resolvedPolicy);
+      setAssignedPolicies(endpointAssignments.map((item) => ({ id: item.policy_id, name: item.policy_name })));
       setPolicies(policyItems);
       if (policyItems.length > 0 && assignmentPolicyId === null) {
         setAssignmentPolicyId(policyItems[0].id);
@@ -87,12 +92,13 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
 
   useEffect(() => {
     void loadData();
-    const timer = window.setInterval(() => {
-      void loadData({ silent: true });
-    }, 5000);
-
-    return () => window.clearInterval(timer);
   }, [endpointId]);
+  useSmartPolling(() => loadData({ silent: true }), {
+    visibleIntervalMs: 15000,
+    hiddenIntervalMs: 90000,
+    runImmediately: false,
+    enabled: Boolean(endpointId)
+  });
 
   const antivirusProducts = useMemo(
     () => endpoint?.latestTelemetry?.raw_payload.antivirus_products ?? [],
@@ -172,7 +178,7 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
               onClick={() => setAssignmentModalOpen(true)}
               disabled={loading || policies.length === 0}
             >
-              Assign policy
+              Assign policies
             </Button>
             <Button
               variant="secondary"
@@ -283,8 +289,12 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
               </div>
             </div>
             <div className="rounded-2xl border border-border bg-slate-950/35 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Assigned policy</p>
-              <p className="mt-2 text-sm font-medium text-slate-100">{policy?.name ?? "No resolved policy"}</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Assigned policies</p>
+              <p className="mt-2 text-sm font-medium text-slate-100">
+                {assignedPolicies.length > 0
+                  ? assignedPolicies.map((item) => item.name).join(", ")
+                  : policy?.name ?? "No resolved policy"}
+              </p>
             </div>
             <div className="rounded-2xl border border-border bg-slate-950/35 p-4">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Latest decision</p>
@@ -591,7 +601,7 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
 
       <Modal
         open={assignmentModalOpen}
-        title="Assign policy to endpoint"
+        title="Assign policies to endpoint"
         description="Select one of the existing policies. The newest endpoint assignment becomes effective."
         onClose={() => setAssignmentModalOpen(false)}
         footer={

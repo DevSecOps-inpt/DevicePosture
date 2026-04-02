@@ -6,6 +6,7 @@ import { ArrowLeft, Copy, Save, ToggleLeft, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type {
   AdapterConfig,
+  AuthProvider,
   ConditionGroup,
   EndpointSummary,
   IpGroup,
@@ -26,6 +27,7 @@ import {
   defaultPolicyEditorState,
   policyToEditorState,
   policyTypeLabel,
+  validatePolicyEditorState,
   type PolicyEditorState
 } from "@/components/modules/policies/policy-form-model";
 import {
@@ -45,6 +47,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
   const [assignmentEndpointId, setAssignmentEndpointId] = useState("");
   const [formState, setFormState] = useState<PolicyEditorState>(defaultPolicyEditorState());
   const [conditionGroups, setConditionGroups] = useState<ConditionGroup[]>([]);
+  const [ldapProviders, setLdapProviders] = useState<AuthProvider[]>([]);
   const [adapterProfiles, setAdapterProfiles] = useState<AdapterConfig[]>([]);
   const [ipGroups, setIpGroups] = useState<IpGroup[]>([]);
 
@@ -56,10 +59,11 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
         api.listAssignments(id).catch(() => []),
         api.listEndpoints().catch(() => [])
       ]);
-      const [groups, adapters, groupsForExecutionGate] = await Promise.all([
+      const [groups, adapters, groupsForExecutionGate, enabledProviders] = await Promise.all([
         api.listConditionGroups().catch(() => []),
         api.listAdapterConfigs().catch(() => []),
-        api.listIpGroups().catch(() => [])
+        api.listIpGroups().catch(() => []),
+        api.listEnabledAuthProviders().catch(() => [])
       ]);
       setPolicy(loadedPolicy);
       setAssignments(loadedAssignments);
@@ -69,6 +73,9 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
       }
       setConditionGroups(groups);
       setAdapterProfiles(adapters);
+      setLdapProviders(
+        enabledProviders.filter((item) => item.protocol === "ldap" && item.is_enabled)
+      );
       setIpGroups(
         groupsForExecutionGate.map((group) => ({
           id: group.group_id,
@@ -175,6 +182,11 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
             <Button
               onClick={async () => {
                 if (!policy) return;
+                const validationError = validatePolicyEditorState(formState);
+                if (validationError) {
+                  pushToast({ tone: "error", title: "Invalid policy", description: validationError });
+                  return;
+                }
                 try {
                   const payload = buildPolicyPayload(formState);
                   const updated = await api.updatePolicy(policy.id, payload);
@@ -277,6 +289,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
               value={formState}
               onChange={setFormState}
               conditionGroups={conditionGroups}
+              ldapProviders={ldapProviders}
             />
             <PolicyExecutionSection
               value={formState}

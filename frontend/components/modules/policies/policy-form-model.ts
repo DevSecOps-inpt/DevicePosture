@@ -66,6 +66,9 @@ export type PolicyEditorState = {
     antivirusStatusEnabled: boolean;
     antivirusStatusOperator: MembershipOperator;
     antivirusStatusValues: string;
+    domainMembershipEnabled: boolean;
+    domainMembershipOperator: MembershipOperator;
+    domainLdapProviderId: number | "";
   };
   execution: {
     adapter: string;
@@ -106,7 +109,10 @@ export function defaultPolicyEditorState(): PolicyEditorState {
       antivirusFamilyGroupId: "",
       antivirusStatusEnabled: true,
       antivirusStatusOperator: "exists in",
-      antivirusStatusValues: "running"
+      antivirusStatusValues: "running",
+      domainMembershipEnabled: false,
+      domainMembershipOperator: "exists in",
+      domainLdapProviderId: ""
     },
     execution: {
       adapter: "fortigate",
@@ -293,6 +299,16 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       continue;
     }
 
+    if (condition.type === "domain_membership") {
+      state.conditions.domainMembershipEnabled = true;
+      state.conditions.domainMembershipOperator = normalizeMembershipOperator(condition.operator);
+      if (typeof condition.value === "object" && condition.value !== null) {
+        const raw = condition.value as Record<string, unknown>;
+        state.conditions.domainLdapProviderId = parseGroupId(raw.provider_id);
+      }
+      continue;
+    }
+
     if (condition.type === "os_version" && typeof condition.value === "object" && condition.value !== null) {
       const raw = condition.value as Record<string, unknown>;
       if (typeof raw.name === "string" && raw.name.trim()) {
@@ -433,6 +449,17 @@ export function buildPolicyConditions(state: PolicyEditorState): PolicyCondition
     }
   }
 
+  if (state.conditions.domainMembershipEnabled && state.conditions.domainLdapProviderId !== "") {
+    conditions.push({
+      type: "domain_membership",
+      field: "domain.joined",
+      operator: state.conditions.domainMembershipOperator,
+      value: {
+        provider_id: state.conditions.domainLdapProviderId
+      }
+    });
+  }
+
   return conditions;
 }
 
@@ -499,6 +526,16 @@ export function buildPolicyPayload(state: PolicyEditorState) {
     conditions: buildPolicyConditions(state),
     execution: buildPolicyExecution(state)
   };
+}
+
+export function validatePolicyEditorState(state: PolicyEditorState): string | null {
+  if (!state.name.trim()) {
+    return "Policy name is required.";
+  }
+  if (state.conditions.domainMembershipEnabled && state.conditions.domainLdapProviderId === "") {
+    return "Select an enabled LDAP server for the domain-join condition.";
+  }
+  return null;
 }
 
 export function policyTypeLabel(policy: Policy): string {
