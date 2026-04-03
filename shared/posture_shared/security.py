@@ -1,5 +1,6 @@
 import os
 import secrets
+import socket
 
 from fastapi import Header, HTTPException, status
 
@@ -10,11 +11,28 @@ DEFAULT_CORS_ORIGINS = (
 )
 
 
+def _discover_local_ipv4_addresses() -> set[str]:
+    addresses: set[str] = set()
+    try:
+        host = socket.gethostname()
+        for family, _, _, _, sockaddr in socket.getaddrinfo(host, None):
+            if family != socket.AF_INET:
+                continue
+            address = sockaddr[0]
+            if not address or address.startswith("127."):
+                continue
+            addresses.add(address)
+    except OSError:
+        return set()
+    return addresses
+
+
 def parse_cors_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOW_ORIGINS", "")
     if raw.strip():
         return [item.strip() for item in raw.split(",") if item.strip()]
-    return list(DEFAULT_CORS_ORIGINS)
+    discovered = {f"http://{address}:3000" for address in _discover_local_ipv4_addresses()}
+    return sorted({*DEFAULT_CORS_ORIGINS, *discovered})
 
 
 def _extract_api_key(x_api_key: str | None, authorization: str | None) -> str | None:
