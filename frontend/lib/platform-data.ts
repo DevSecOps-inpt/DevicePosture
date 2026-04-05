@@ -53,7 +53,7 @@ export function buildEndpointView(args: {
     hostname: endpoint.hostname,
     status: activityToStatus(endpoint.activity_status, decision),
     activityStatus: endpoint.activity_status,
-    ipAddress: telemetry?.core_ipv4 ?? null,
+    ipAddress: telemetry?.source_ip ?? telemetry?.core_ipv4 ?? null,
     osType: telemetry?.core_os_name ?? null,
     osBuild: telemetry?.core_os_build ?? null,
     lastSeen: endpoint.last_seen,

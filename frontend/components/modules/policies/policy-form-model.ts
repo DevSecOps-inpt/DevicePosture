@@ -224,7 +224,7 @@ function normalizeNumericOperator(operator: string | undefined): NumericOperator
 }
 
 export function policyToEditorState(policy: Policy): PolicyEditorState {
-  const state = defaultPolicyEditorState();
+  const state = emptyPolicyEditorStateForExistingPolicy();
   state.name = policy.name;
   state.description = policy.description ?? "";
   state.policyType =
@@ -241,7 +241,7 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.osNameGroupId = parseGroupId(raw.group_id);
-        state.conditions.osNameValues = joinValues(raw.values);
+        state.conditions.osNameValues = joinValues(raw.values) || joinValues(raw.name);
       } else {
         state.conditions.osNameValues = joinValues(condition.value);
       }
@@ -253,7 +253,12 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     ) {
       state.conditions.osBuildEnabled = true;
       state.conditions.osBuildOperator = normalizeNumericOperator(condition.operator);
-      state.conditions.osBuildValue = String(condition.value ?? "");
+      if (typeof condition.value === "object" && condition.value !== null) {
+        const raw = condition.value as Record<string, unknown>;
+        state.conditions.osBuildValue = String(raw.min_build ?? raw.build ?? raw.version ?? "");
+      } else {
+        state.conditions.osBuildValue = String(condition.value ?? "");
+      }
       continue;
     }
     if (condition.type === "required_kbs") {
@@ -262,7 +267,7 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.patchesGroupId = parseGroupId(raw.group_id);
-        state.conditions.patchesValues = joinValues(raw.values);
+        state.conditions.patchesValues = joinValues(raw.values) || joinValues(raw.required_kbs) || joinValues(raw.kbs);
       } else {
         state.conditions.patchesValues = joinValues(condition.value);
       }
@@ -274,7 +279,12 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     ) {
       state.conditions.antivirusStatusEnabled = true;
       state.conditions.antivirusStatusOperator = normalizeMembershipOperator(condition.operator);
-      state.conditions.antivirusStatusValues = joinValues(condition.value);
+      if (typeof condition.value === "object" && condition.value !== null) {
+        const raw = condition.value as Record<string, unknown>;
+        state.conditions.antivirusStatusValues = joinValues(raw.values) || joinValues(raw.status) || joinValues(raw.states);
+      } else {
+        state.conditions.antivirusStatusValues = joinValues(condition.value);
+      }
       continue;
     }
     if (
@@ -286,7 +296,8 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.antivirusFamilyGroupId = parseGroupId(raw.group_id);
-        state.conditions.antivirusFamilyValues = joinValues(raw.values);
+        state.conditions.antivirusFamilyValues =
+          joinValues(raw.values) || joinValues(raw.identifiers) || joinValues(raw.families);
       } else {
         state.conditions.antivirusFamilyValues = joinValues(condition.value);
       }
@@ -525,6 +536,47 @@ export function buildPolicyPayload(state: PolicyEditorState) {
     is_active: state.isActive,
     conditions: buildPolicyConditions(state),
     execution: buildPolicyExecution(state)
+  };
+}
+
+function emptyPolicyEditorStateForExistingPolicy(): PolicyEditorState {
+  return {
+    ...defaultPolicyEditorState(),
+    conditions: {
+      osNameEnabled: false,
+      osNameOperator: "exists in",
+      osNameValues: "",
+      osNameGroupId: "",
+      osBuildEnabled: false,
+      osBuildOperator: "greater than or equal",
+      osBuildValue: "",
+      patchesEnabled: false,
+      patchesOperator: "exists in",
+      patchesValues: "",
+      patchesGroupId: "",
+      antivirusFamilyEnabled: false,
+      antivirusFamilyOperator: "exists in",
+      antivirusFamilyValues: "",
+      antivirusFamilyGroupId: "",
+      antivirusStatusEnabled: false,
+      antivirusStatusOperator: "exists in",
+      antivirusStatusValues: "",
+      domainMembershipEnabled: false,
+      domainMembershipOperator: "exists in",
+      domainLdapProviderId: ""
+    },
+    execution: {
+      adapter: "fortigate",
+      adapterProfile: "",
+      objectGroup: "",
+      objectOnCompliant: "none",
+      objectOnNonCompliant: "none",
+      adapterOnCompliant: "none",
+      adapterOnNonCompliant: "none",
+      gateEnabled: false,
+      gateGroupName: "",
+      gateOperator: "exists in"
+    }
   };
 }
 

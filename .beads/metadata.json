@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "Playground",
+  "project_id": "52becbe1-650e-4f11-8556-007a964ca4ab"
+}

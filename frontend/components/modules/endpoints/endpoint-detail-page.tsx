@@ -31,6 +31,14 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
   const [assignmentPolicyId, setAssignmentPolicyId] = useState<number | null>(null);
 
+  const dedupeAssignedPolicies = (items: Array<{ policy_id: number; policy_name: string }>) =>
+    items
+      .map((item) => ({ id: item.policy_id, name: item.policy_name }))
+      .filter(
+        (item, index, array) =>
+          array.findIndex((candidate) => candidate.id === item.id && candidate.name === item.name) === index
+      );
+
   const loadData = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) {
       setLoading(true);
@@ -56,6 +64,8 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
           api.getEndpointAssignedPolicies(endpointId).catch(() => [])
         ]);
 
+      const dedupedAssignedPolicies = dedupeAssignedPolicies(endpointAssignments);
+
       setEndpoint(
         buildEndpointView({
           endpoint: endpointSummary,
@@ -63,13 +73,13 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
           policy: resolvedPolicy,
           decision: latestDecision,
           enforcement: latestEnforcement,
-          assignedPolicies: endpointAssignments.map((item) => ({ id: item.policy_id, name: item.policy_name }))
+          assignedPolicies: dedupedAssignedPolicies
         })
       );
       setTelemetryHistory(telemetry);
       setDecisionHistory(decisions);
       setPolicy(resolvedPolicy);
-      setAssignedPolicies(endpointAssignments.map((item) => ({ id: item.policy_id, name: item.policy_name })));
+      setAssignedPolicies(dedupedAssignedPolicies);
       setPolicies(policyItems);
       if (policyItems.length > 0 && assignmentPolicyId === null) {
         setAssignmentPolicyId(policyItems[0].id);
@@ -240,7 +250,7 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
               {[
                 ["Endpoint ID", endpoint?.endpointId ?? endpointId],
                 ["Hostname", endpoint?.hostname ?? "Unavailable"],
-                ["IP address", endpoint?.ipAddress ?? "Unavailable"],
+                ["Connection IP", endpoint?.ipAddress ?? "Unavailable"],
                 ["OS", endpoint?.osType ?? "Unavailable"],
                 ["OS build", endpoint?.osBuild ?? "Unavailable"],
                 [

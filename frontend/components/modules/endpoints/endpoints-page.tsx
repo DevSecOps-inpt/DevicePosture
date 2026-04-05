@@ -58,10 +58,14 @@ export function EndpointsPage() {
 
       const telemetryByEndpoint = Object.fromEntries(telemetryBatch.map((item) => [item.endpoint_id, item]));
       const views: EndpointView[] = endpointSummaries.map((endpoint) => {
-        const assignedPolicies = (assignmentsBatch[endpoint.endpoint_id] ?? []).map((item) => ({
+        const assignedPoliciesRaw = (assignmentsBatch[endpoint.endpoint_id] ?? []).map((item) => ({
           id: item.policy_id,
           name: item.policy_name
         }));
+        const assignedPolicies = assignedPoliciesRaw.filter(
+          (item, index, array) =>
+            array.findIndex((candidate) => candidate.id === item.id && candidate.name === item.name) === index
+        );
         return buildEndpointView({
           endpoint,
           telemetry: telemetryByEndpoint[endpoint.endpoint_id] ?? null,
@@ -261,7 +265,7 @@ export function EndpointsPage() {
                 },
                 {
                   id: "ip",
-                  header: "IP",
+                  header: "Connection IP",
                   cell: (endpoint) => endpoint.ipAddress ?? "Unavailable",
                   sortAccessor: (endpoint) => endpoint.ipAddress ?? ""
                 },

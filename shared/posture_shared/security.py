@@ -1,6 +1,7 @@
 import os
 import secrets
 import socket
+from urllib.parse import urlparse
 
 from fastapi import Header, HTTPException, status
 
@@ -27,12 +28,40 @@ def _discover_local_ipv4_addresses() -> set[str]:
     return addresses
 
 
+def _expand_origin_entry(entry: str) -> set[str]:
+    raw = entry.strip().rstrip("/")
+    if not raw:
+        return set()
+
+    candidate = raw if "://" in raw else f"http://{raw}"
+    parsed = urlparse(candidate)
+    host = parsed.hostname
+    scheme = parsed.scheme or "http"
+    port = parsed.port
+    if not host:
+        return set()
+
+    origins = {f"{scheme}://{host}"}
+    if port is not None:
+        origins.add(f"{scheme}://{host}:{port}")
+    else:
+        # Most dev frontends run on 3000, so include it automatically to avoid exact-origin mismatch.
+        origins.add(f"{scheme}://{host}:3000")
+    return origins
+
+
 def parse_cors_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOW_ORIGINS", "")
     if raw.strip():
-        return [item.strip() for item in raw.split(",") if item.strip()]
+        expanded: set[str] = set()
+        for item in raw.split(","):
+            expanded.update(_expand_origin_entry(item))
+        return sorted(expanded)
     discovered = {f"http://{address}:3000" for address in _discover_local_ipv4_addresses()}
-    return sorted({*DEFAULT_CORS_ORIGINS, *discovered})
+    defaults: set[str] = set()
+    for item in DEFAULT_CORS_ORIGINS:
+        defaults.update(_expand_origin_entry(item))
+    return sorted({*defaults, *discovered})
 
 
 def _extract_api_key(x_api_key: str | None, authorization: str | None) -> str | None:

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v bd >/dev/null 2>&1; then
+  echo "Error: 'bd' was not found on host PATH. Install Beads first." >&2
+  exit 127
+fi
+
+if ! bd --version >/dev/null 2>&1; then
+  echo "Error: 'bd' exists on host PATH but is not executable. Repair Beads installation." >&2
+  exit 126
+fi
+
+exec bd "$@"

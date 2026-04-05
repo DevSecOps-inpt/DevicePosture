@@ -346,6 +346,18 @@ def to_policy_response(policy: Policy, *, db: Session | None = None, resolve_gro
     )
 
 
+def _dedupe_assignments(assignments: list[PolicyAssignmentModel]) -> list[PolicyAssignmentModel]:
+    unique: list[PolicyAssignmentModel] = []
+    seen: set[tuple[str, str]] = set()
+    for assignment in assignments:
+        key = (assignment.assignment_type, assignment.assignment_value)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(assignment)
+    return unique
+
+
 def resolve_assigned_policy(
     *,
     db: Session,
@@ -830,6 +842,18 @@ def create_assignment(
     if not assignment_value:
         raise HTTPException(status_code=422, detail="assignment_value is required")
 
+    existing = db.scalar(
+        select(PolicyAssignmentModel)
+        .where(
+            PolicyAssignmentModel.policy_id == policy_id,
+            PolicyAssignmentModel.assignment_type == payload.assignment_type,
+            PolicyAssignmentModel.assignment_value == assignment_value,
+        )
+        .order_by(PolicyAssignmentModel.id.desc())
+    )
+    if existing is not None:
+        return AssignmentResponse.model_validate(existing)
+
     assignment = PolicyAssignmentModel(
         policy_id=policy_id,
         assignment_type=payload.assignment_type,
@@ -850,7 +874,13 @@ def list_assignments(
     policy = db.get(Policy, policy_id)
     if policy is None:
         raise HTTPException(status_code=404, detail="Policy not found")
-    return [AssignmentResponse.model_validate(item) for item in policy.assignments]
+    assignments = db.scalars(
+        select(PolicyAssignmentModel)
+        .where(PolicyAssignmentModel.policy_id == policy_id)
+        .order_by(PolicyAssignmentModel.id.desc())
+    ).all()
+    deduped = _dedupe_assignments(assignments)
+    return [AssignmentResponse.model_validate(item) for item in deduped]
 
 
 @app.get("/endpoints/{endpoint_id}/assigned-policies", response_model=list[EndpointAssignedPolicyResponse])
@@ -868,10 +898,15 @@ def list_endpoint_assigned_policies(
         .order_by(PolicyAssignmentModel.id.desc())
     ).all()
     responses: list[EndpointAssignedPolicyResponse] = []
+    seen: set[tuple[int, str, str | None]] = set()
     for assignment in assignments:
         policy = db.get(Policy, assignment.policy_id)
         if policy is None:
             continue
+        key = (policy.id, policy.policy_scope, policy.lifecycle_event_type)
+        if key in seen:
+            continue
+        seen.add(key)
         responses.append(
             EndpointAssignedPolicyResponse(
                 policy_id=policy.id,
@@ -906,10 +941,16 @@ def list_endpoint_assigned_policies_batch(
     policies = db.scalars(select(Policy).where(Policy.id.in_(policy_ids))).all() if policy_ids else []
     policy_by_id = {item.id: item for item in policies}
     response: dict[str, list[EndpointAssignedPolicyResponse]] = {item: [] for item in endpoint_ids}
+    seen_by_endpoint: dict[str, set[tuple[int, str, str | None]]] = {item: set() for item in endpoint_ids}
     for assignment in assignments:
         policy = policy_by_id.get(assignment.policy_id)
         if policy is None:
             continue
+        dedupe_key = (policy.id, policy.policy_scope, policy.lifecycle_event_type)
+        endpoint_seen = seen_by_endpoint.setdefault(assignment.assignment_value, set())
+        if dedupe_key in endpoint_seen:
+            continue
+        endpoint_seen.add(dedupe_key)
         response.setdefault(assignment.assignment_value, []).append(
             EndpointAssignedPolicyResponse(
                 policy_id=policy.id,

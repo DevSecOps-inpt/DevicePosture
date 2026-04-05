@@ -51,6 +51,16 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
   const [adapterProfiles, setAdapterProfiles] = useState<AdapterConfig[]>([]);
   const [ipGroups, setIpGroups] = useState<IpGroup[]>([]);
 
+  const dedupeAssignments = (items: PolicyAssignment[]) =>
+    items.filter(
+      (item, index, array) =>
+        array.findIndex(
+          (candidate) =>
+            candidate.assignment_type === item.assignment_type &&
+            candidate.assignment_value === item.assignment_value
+        ) === index
+    );
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -66,7 +76,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
         api.listEnabledAuthProviders().catch(() => [])
       ]);
       setPolicy(loadedPolicy);
-      setAssignments(loadedAssignments);
+      setAssignments(dedupeAssignments(loadedAssignments));
       setEndpointOptions(endpoints);
       if (!assignmentEndpointId && endpoints.length > 0) {
         setAssignmentEndpointId(endpoints[0].endpoint_id);
@@ -418,7 +428,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
                   });
                   pushToast({ tone: "success", title: "Endpoint assigned" });
                   setAssignmentModalOpen(false);
-                  setAssignments(await api.listAssignments(policy.id));
+                  setAssignments(dedupeAssignments(await api.listAssignments(policy.id)));
                 } catch (error) {
                   pushToast({
                     tone: "error",

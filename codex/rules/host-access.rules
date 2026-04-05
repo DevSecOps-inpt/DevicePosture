@@ -1,0 +1,11 @@
+# Host Access Boundary (Narrow)
+
+Rule: commands starting with `./tools/host/beads-host` require explicit user approval before execution.
+
+Allowed scope after approval:
+- Execute only the requested `./tools/host/beads-host ...` command.
+
+Disallowed by default:
+- Broad out-of-sandbox execution.
+- Any unrelated host command prefixes.
+

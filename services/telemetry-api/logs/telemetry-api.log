@@ -4783,3 +4783,7 @@
 2026-04-03 00:45:43,279 INFO [telemetry-api] telemetry-api database initialized
 2026-04-03 01:01:41,212 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
 2026-04-03 01:01:41,228 INFO [telemetry-api] telemetry-api database initialized
+2026-04-03 12:30:54,876 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-03 12:30:54,886 INFO [telemetry-api] telemetry-api database initialized
+2026-04-03 12:30:55,097 INFO [telemetry-api] request_id=a87573c3-3228-4ff4-b678-9c6950a830d8 method=GET path=/healthz status=200 duration_ms=4.80
+2026-04-03 12:31:13,048 INFO [telemetry-api] request_id=01cbb20b-2cb8-4940-aff5-57cae5563a64 method=GET path=/healthz status=200 duration_ms=2.11
