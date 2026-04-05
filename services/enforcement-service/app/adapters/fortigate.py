@@ -1,4 +1,5 @@
 import time
+from typing import Any
 
 import requests
 
@@ -37,11 +38,32 @@ class FortiGateAdapter(EnforcementAdapter):
             )
 
         settings = self._resolve_settings(action)
-        address_name = self._address_name(action.endpoint_id)
         try:
             if action.action == "quarantine":
+                candidate_names = self._candidate_address_names(action.endpoint_id, action.ip_address)
+                address_name = candidate_names[0]
                 address_result = self._ensure_address(settings, address_name, action.ip_address)
                 group_result = self._ensure_group_member(settings, address_name)
+                verification = self._verify_group_membership(
+                    settings,
+                    required_present={address_name},
+                    required_absent=set(),
+                )
+                if not verification["ok"]:
+                    return EnforcementResult(
+                        adapter=self.name,
+                        action=action.action,
+                        endpoint_id=action.endpoint_id,
+                        status="failed",
+                        details={
+                            "message": "FortiGate group verification failed after add",
+                            "address": address_result,
+                            "group": group_result,
+                            "verification": verification,
+                            "ip_address": action.ip_address,
+                            "group_name": settings["group_name"],
+                        },
+                    )
                 return EnforcementResult(
                     adapter=self.name,
                     action=action.action,
@@ -50,27 +72,66 @@ class FortiGateAdapter(EnforcementAdapter):
                     details={
                         "address": address_result,
                         "group": group_result,
+                        "verification": verification,
                         "ip_address": action.ip_address,
                         "group_name": settings["group_name"],
                     },
                 )
 
             if action.action == "remove_from_group":
-                group_result = self._remove_group_member(settings, address_name)
+                candidate_names = self._candidate_address_names(action.endpoint_id, action.ip_address)
+                group_results: list[dict[str, str]] = []
+                for address_name in candidate_names:
+                    group_results.append(self._remove_group_member(settings, address_name))
+                verification = self._verify_group_membership(
+                    settings,
+                    required_present=set(),
+                    required_absent=set(candidate_names),
+                )
+                if not verification["ok"]:
+                    return EnforcementResult(
+                        adapter=self.name,
+                        action=action.action,
+                        endpoint_id=action.endpoint_id,
+                        status="failed",
+                        details={
+                            "message": "FortiGate group verification failed after remove",
+                            "group_results": group_results,
+                            "verification": verification,
+                            "ip_address": action.ip_address,
+                            "group_name": settings["group_name"],
+                        },
+                    )
                 return EnforcementResult(
                     adapter=self.name,
                     action=action.action,
                     endpoint_id=action.endpoint_id,
                     status="success",
                     details={
-                        "group": group_result,
+                        "group": group_results,
+                        "verification": verification,
                         "ip_address": action.ip_address,
                         "group_name": settings["group_name"],
                     },
                 )
 
             group_ips = action.decision.get("group_ips", [])
-            synced = self._sync_group_ips(settings, group_ips)
+            sync_result = self._sync_group_ips(settings, group_ips)
+            if not sync_result["verification"]["ok"]:
+                return EnforcementResult(
+                    adapter=self.name,
+                    action=action.action,
+                    endpoint_id=action.endpoint_id,
+                    status="failed",
+                    details={
+                        "group_name": settings["group_name"],
+                        "synced_ip_count": len(sync_result["synced"]),
+                        "synced": sync_result["synced"],
+                        "removed": sync_result["removed"],
+                        "verification": sync_result["verification"],
+                        "message": "FortiGate group verification failed after sync",
+                    },
+                )
             return EnforcementResult(
                 adapter=self.name,
                 action=action.action,
@@ -78,8 +139,10 @@ class FortiGateAdapter(EnforcementAdapter):
                 status="success",
                 details={
                     "group_name": settings["group_name"],
-                    "synced_ip_count": len(synced),
-                    "synced": synced,
+                    "synced_ip_count": len(sync_result["synced"]),
+                    "synced": sync_result["synced"],
+                    "removed": sync_result["removed"],
+                    "verification": sync_result["verification"],
                 },
             )
         except requests.RequestException as exc:
@@ -168,9 +231,18 @@ class FortiGateAdapter(EnforcementAdapter):
                 time.sleep(attempt)
         raise last_error  # pragma: no cover
 
-    def _address_name(self, endpoint_id: str) -> str:
-        safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in endpoint_id.lower())
+    def _address_name(self, identifier: str) -> str:
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in identifier.lower())
         return f"posture-{safe[:40]}"
+
+    def _candidate_address_names(self, endpoint_id: str, ip_address: str) -> list[str]:
+        names: list[str] = []
+        preferred = self._address_name(ip_address)
+        fallback = self._address_name(endpoint_id)
+        for item in (preferred, fallback):
+            if item not in names:
+                names.append(item)
+        return names
 
     def _ensure_address(self, settings: dict, address_name: str, ip_address: str) -> dict:
         path = f"/api/v2/cmdb/firewall/address/{address_name}"
@@ -233,11 +305,65 @@ class FortiGateAdapter(EnforcementAdapter):
         self._update_group_members(settings, members)
         return {"group": settings["group_name"], "operation": "removed"}
 
-    def _sync_group_ips(self, settings: dict, group_ips: list[str]) -> list[dict]:
+    def _group_member_names(self, settings: dict) -> set[str]:
+        members = self._get_group_members(settings)
+        return {str(item.get("name")) for item in members if isinstance(item, dict) and item.get("name")}
+
+    def _verify_group_membership(
+        self,
+        settings: dict,
+        *,
+        required_present: set[str],
+        required_absent: set[str],
+    ) -> dict[str, Any]:
+        actual_names = self._group_member_names(settings)
+        missing = sorted(required_present - actual_names)
+        still_present = sorted(actual_names.intersection(required_absent))
+        return {
+            "ok": len(missing) == 0 and len(still_present) == 0,
+            "missing": missing,
+            "still_present": still_present,
+            "group_member_count": len(actual_names),
+        }
+
+    def _sync_group_ips(self, settings: dict, group_ips: list[str]) -> dict[str, Any]:
         synced: list[dict] = []
+        desired_members: list[dict[str, str]] = []
+        desired_names: set[str] = set()
         for ip_address in group_ips:
             address_name = self._address_name(ip_address)
             address_result = self._ensure_address(settings, address_name, ip_address)
-            group_result = self._ensure_group_member(settings, address_name)
-            synced.append({"ip_address": ip_address, "address": address_result, "group": group_result})
-        return synced
+            synced.append({"ip_address": ip_address, "address": address_result})
+            if address_name not in desired_names:
+                desired_names.add(address_name)
+                desired_members.append({"name": address_name})
+
+        current_members = self._get_group_members(settings)
+        keep_non_posture_members = True
+        retained_non_posture = [
+            {"name": item["name"]}
+            for item in current_members
+            if isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and not str(item.get("name")).startswith("posture-")
+        ]
+        final_members = retained_non_posture + desired_members if keep_non_posture_members else desired_members
+
+        current_names = {str(item.get("name")) for item in current_members if isinstance(item, dict) and item.get("name")}
+        final_names = {item["name"] for item in final_members}
+        removed = sorted(name for name in current_names if name.startswith("posture-") and name not in final_names)
+
+        if final_names != current_names:
+            self._update_group_members(settings, final_members)
+
+        actual_names = self._group_member_names(settings)
+        actual_posture_names = {name for name in actual_names if name.startswith("posture-")}
+        verification = {
+            "ok": desired_names.issubset(actual_names) and len(actual_posture_names - desired_names) == 0,
+            "expected_posture_members": sorted(desired_names),
+            "actual_posture_members": sorted(actual_posture_names),
+            "missing_posture_members": sorted(desired_names - actual_names),
+            "unexpected_posture_members": sorted(actual_posture_names - desired_names),
+            "group_member_count": len(actual_names),
+        }
+        return {"synced": synced, "removed": removed, "verification": verification}

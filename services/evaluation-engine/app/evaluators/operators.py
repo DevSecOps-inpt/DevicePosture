@@ -26,6 +26,8 @@ def normalize_operator(raw_operator: str | None) -> str:
         "does not exist in": "does_not_exist_in",
         "not_in": "does_not_exist_in",
         "contains_none": "does_not_exist_in",
+        "contains": "contains_all",
+        "contains all": "contains_all",
         "contains_all": "contains_all",
     }
     return aliases.get(value, "exists_in")

@@ -464,6 +464,8 @@ function AdapterActionSelect({
         className={inputClassName}
       >
         <option value="none">No action</option>
+        <option value="add_ip">Add IP to group</option>
+        <option value="remove_ip">Remove IP from group</option>
         <option value="push_group">Push new IP group</option>
       </select>
     </label>

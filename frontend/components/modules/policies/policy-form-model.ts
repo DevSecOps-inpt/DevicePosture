@@ -1,17 +1,17 @@
 import type { Policy, PolicyActionType, PolicyCondition } from "@/types/platform";
 
 export type PolicyType = "posture" | "telemetry_received" | "inactive_to_active" | "active_to_inactive";
-export type MembershipOperator = "exists in" | "does not exist in";
+export type MembershipOperator = "exists in" | "does not exist in" | "contains";
 export type NumericOperator =
   | "greater than"
   | "greater than or equal"
   | "less than"
   | "less than or equal";
 export type GroupAction = "none" | "add" | "remove";
-export type AdapterAction = "none" | "push_group";
+export type AdapterAction = "none" | "push_group" | "add_ip" | "remove_ip";
 export type ExecutionIpGroupOperator = "exists in" | "does not exist in";
 
-export const MEMBERSHIP_OPERATORS: MembershipOperator[] = ["exists in", "does not exist in"];
+export const MEMBERSHIP_OPERATORS: MembershipOperator[] = ["exists in", "does not exist in", "contains"];
 export const NUMERIC_OPERATORS: NumericOperator[] = [
   "greater than",
   "greater than or equal",
@@ -181,12 +181,14 @@ function resolveGroupAction(
 function resolveAdapterAction(
   actions: Array<{ action_type: PolicyActionType; parameters?: Record<string, unknown> }>
 ): AdapterAction {
-  if (
-    actions.some((item) =>
-      ["adapter.sync_group", "adapter.add_ip_to_group", "adapter.remove_ip_from_group"].includes(item.action_type)
-    )
-  ) {
+  if (actions.some((item) => item.action_type === "adapter.sync_group")) {
     return "push_group";
+  }
+  if (actions.some((item) => item.action_type === "adapter.add_ip_to_group")) {
+    return "add_ip";
+  }
+  if (actions.some((item) => item.action_type === "adapter.remove_ip_from_group")) {
+    return "remove_ip";
   }
   return "none";
 }
@@ -205,6 +207,9 @@ function normalizeMembershipOperator(operator: string | undefined): MembershipOp
   const value = (operator ?? "").trim().toLowerCase();
   if (value === "does not exist in" || value === "does_not_exist_in" || value === "not_in") {
     return "does not exist in";
+  }
+  if (value === "contains" || value === "contains_all" || value === "contains all") {
+    return "contains";
   }
   return "exists in";
 }
@@ -499,9 +504,17 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
 
   if (state.execution.adapterOnCompliant === "push_group") {
     onCompliant.push(executionAction("adapter.sync_group", objectGroup));
+  } else if (state.execution.adapterOnCompliant === "add_ip") {
+    onCompliant.push(executionAction("adapter.add_ip_to_group", objectGroup));
+  } else if (state.execution.adapterOnCompliant === "remove_ip") {
+    onCompliant.push(executionAction("adapter.remove_ip_from_group", objectGroup));
   }
   if (state.execution.adapterOnNonCompliant === "push_group") {
     onNonCompliant.push(executionAction("adapter.sync_group", objectGroup));
+  } else if (state.execution.adapterOnNonCompliant === "add_ip") {
+    onNonCompliant.push(executionAction("adapter.add_ip_to_group", objectGroup));
+  } else if (state.execution.adapterOnNonCompliant === "remove_ip") {
+    onNonCompliant.push(executionAction("adapter.remove_ip_from_group", objectGroup));
   }
 
   return {
