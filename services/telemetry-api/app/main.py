@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+import ipaddress
 from collections import defaultdict, deque
 from uuid import uuid4
 from pathlib import Path
@@ -77,6 +78,8 @@ def ensure_endpoint_runtime_columns() -> None:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_collected_at DATETIME")
     if "last_ipv4" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_ipv4 VARCHAR(64)")
+    if "last_source_ip" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN last_source_ip VARCHAR(64)")
     if "expected_interval_seconds" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN expected_interval_seconds INTEGER")
     if "activity_grace_multiplier" not in existing_columns:
@@ -156,6 +159,53 @@ def _apply_ingest_rate_limit(source_ip: str) -> None:
         bucket.append(now)
 
 
+def _parse_first_valid_ip(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+    candidates = [item.strip() for item in raw_value.split(",") if item.strip()]
+    for candidate in candidates:
+        token = candidate
+        if token.lower().startswith("for="):
+            token = token[4:]
+        token = token.strip().strip('"').strip("[]")
+        if ";" in token:
+            token = token.split(";", 1)[0].strip()
+        if token.count(":") > 1 and "]:" in candidate:
+            token = token.split("]:", 1)[0]
+        elif token.count(":") == 1 and token.rsplit(":", 1)[1].isdigit():
+            token = token.rsplit(":", 1)[0]
+        try:
+            return str(ipaddress.ip_address(token))
+        except ValueError:
+            continue
+    return None
+
+
+def resolve_client_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    parsed_forwarded_for = _parse_first_valid_ip(forwarded_for)
+    if parsed_forwarded_for:
+        return parsed_forwarded_for
+
+    real_ip = request.headers.get("x-real-ip")
+    parsed_real_ip = _parse_first_valid_ip(real_ip)
+    if parsed_real_ip:
+        return parsed_real_ip
+
+    forwarded = request.headers.get("forwarded")
+    parsed_forwarded = _parse_first_valid_ip(forwarded)
+    if parsed_forwarded:
+        return parsed_forwarded
+
+    fallback = request.client.host if request.client else None
+    if not fallback:
+        return None
+    try:
+        return str(ipaddress.ip_address(fallback))
+    except ValueError:
+        return fallback
+
+
 @app.post("/telemetry", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
 def submit_telemetry(
     telemetry: EndpointTelemetry,
@@ -174,7 +224,7 @@ def submit_telemetry(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid Content-Length header")
 
-    source_ip = request.client.host if request.client else None
+    source_ip = resolve_client_ip(request)
     if source_ip is not None:
         _apply_ingest_rate_limit(source_ip)
 
@@ -192,11 +242,20 @@ def submit_telemetry(
 
     endpoint.hostname = telemetry.hostname
     endpoint.last_ipv4 = telemetry.network.ipv4
+    endpoint.last_source_ip = source_ip
     endpoint.last_seen = datetime.now(timezone.utc)
     endpoint.last_collected_at = telemetry.collected_at
     endpoint.expected_interval_seconds = telemetry.agent.interval_seconds
     endpoint.activity_grace_multiplier = telemetry.agent.active_grace_multiplier or DEFAULT_ACTIVITY_GRACE_MULTIPLIER
     endpoint.last_activity_status = "active"
+
+    telemetry_payload = telemetry.model_dump(mode="json")
+    extras = telemetry_payload.get("extras")
+    if not isinstance(extras, dict):
+        extras = {}
+    if source_ip:
+        extras["connection_source_ip"] = source_ip
+    telemetry_payload["extras"] = extras
 
     record = TelemetryRecord(
         endpoint_ref=endpoint.id,
@@ -208,7 +267,7 @@ def submit_telemetry(
         core_os_name=telemetry.os.name,
         core_os_version=telemetry.os.version,
         core_os_build=telemetry.os.build,
-        raw_payload=telemetry.model_dump(mode="json"),
+        raw_payload=telemetry_payload,
     )
     db.add(record)
     db.flush()
@@ -217,7 +276,8 @@ def submit_telemetry(
         "record_id": record.id,
         "collector_type": telemetry.collector_type,
         "source_ip": source_ip,
-        "endpoint_ip": telemetry.network.ipv4,
+        "reported_ipv4": telemetry.network.ipv4,
+        "endpoint_ip": source_ip or telemetry.network.ipv4,
     }
     if previous_status == "inactive":
         create_lifecycle_event(

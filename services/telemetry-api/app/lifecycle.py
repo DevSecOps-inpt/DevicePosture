@@ -167,8 +167,16 @@ def _evaluate_lifecycle_policy(
         }
 
     url = f"{EVALUATION_ENGINE_URL}/evaluate-inline"
+    enriched_telemetry_payload = dict(telemetry_payload)
+    extras = enriched_telemetry_payload.get("extras")
+    if not isinstance(extras, dict):
+        extras = {}
+    if endpoint_ip:
+        extras["connection_source_ip"] = endpoint_ip
+    enriched_telemetry_payload["extras"] = extras
+
     request_payload = {
-        "telemetry": telemetry_payload,
+        "telemetry": enriched_telemetry_payload,
         "policy": policy,
     }
     try:
@@ -248,6 +256,10 @@ def create_lifecycle_event(
     policy_id = policy.get("id") if isinstance(policy, dict) else None
     policy_name = policy.get("name") if isinstance(policy, dict) else None
     endpoint_ip = details.get("endpoint_ip") if isinstance(details, dict) else None
+    if not endpoint_ip and isinstance(details, dict):
+        endpoint_ip = details.get("source_ip")
+    if not endpoint_ip:
+        endpoint_ip = endpoint.last_source_ip
     if not endpoint_ip:
         endpoint_ip = endpoint.last_ipv4
 
@@ -341,7 +353,9 @@ def reconcile_inactive_transitions(*, db: Session, logger: logging.Logger) -> No
                     "activity_grace_multiplier": endpoint.activity_grace_multiplier,
                     "activity_timeout_seconds": timeout_seconds,
                     "seconds_since_seen": lag_seconds,
-                    "endpoint_ip": endpoint.last_ipv4,
+                    "source_ip": endpoint.last_source_ip,
+                    "reported_ipv4": endpoint.last_ipv4,
+                    "endpoint_ip": endpoint.last_source_ip or endpoint.last_ipv4,
                 },
                 telemetry_payload=telemetry_payload,
                 logger=logger,

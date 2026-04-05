@@ -17,6 +17,7 @@ class Endpoint(Base):
     endpoint_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     hostname: Mapped[str] = mapped_column(String(255), index=True)
     last_ipv4: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
