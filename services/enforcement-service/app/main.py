@@ -179,6 +179,42 @@ def _short_error_message(exc: Exception) -> str:
     return text or "Unknown adapter error"
 
 
+def _string_excerpt(value: Any, max_length: int = 600) -> str:
+    rendered = str(value) if value is not None else ""
+    if len(rendered) <= max_length:
+        return rendered
+    return f"{rendered[: max_length - 3]}..."
+
+
+def log_policy_http_action_result(
+    *,
+    action_type: str,
+    endpoint_id: str,
+    method: str,
+    url: str,
+    status: str,
+    http_status: int | None = None,
+    request_body: Any = None,
+    response_excerpt: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    sanitized_body = sanitize_sensitive_payload(request_body) if request_body is not None else None
+    level = logging.INFO if status == "success" else logging.WARNING
+    logger.log(
+        level,
+        "policy_http_action endpoint_id=%s action=%s method=%s url=%s status=%s http_status=%s error=%s request_body=%s response_excerpt=%s",
+        endpoint_id,
+        action_type,
+        method,
+        url,
+        status,
+        http_status if http_status is not None else "n/a",
+        error_message or "",
+        _string_excerpt(sanitized_body),
+        _string_excerpt(response_excerpt or ""),
+    )
+
+
 SENSITIVE_SETTING_KEYS = {"token", "api_key", "apikey", "secret", "password"}
 
 
@@ -732,8 +768,10 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "status": "success" if response.status_code < 400 else "failed",
                     "adapter": selected_adapter,
                     "adapter_profile": profile_name,
+                    "request_method": method,
                     "url": target_url,
                     "http_status": response.status_code,
+                    "request_body_excerpt": _string_excerpt(sanitize_sensitive_payload(payload_body)),
                     "response_excerpt": response.text[:500],
                 }
                 if response.status_code >= 400:
@@ -748,10 +786,23 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "status": "failed",
                     "adapter": selected_adapter,
                     "adapter_profile": profile_name,
+                    "request_method": method,
                     "url": target_url,
+                    "request_body_excerpt": _string_excerpt(sanitize_sensitive_payload(payload_body)),
                     "message": str(exc),
                 }
 
+            log_policy_http_action_result(
+                action_type=action_type,
+                endpoint_id=decision.endpoint_id,
+                method=method,
+                url=target_url,
+                status=payload.get("status", "failed"),
+                http_status=payload.get("http_status"),
+                request_body=payload_body,
+                response_excerpt=payload.get("response_excerpt"),
+                error_message=payload.get("message"),
+            )
             store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
             results.append(payload)
             continue
@@ -812,8 +863,10 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 payload = {
                     "action_type": action_type,
                     "status": "success" if response.status_code < 400 else "failed",
+                    "request_method": method,
                     "http_status": response.status_code,
                     "url": url,
+                    "request_body_excerpt": _string_excerpt(sanitize_sensitive_payload(body)),
                     "response_excerpt": response.text[:500],
                 }
                 if response.status_code >= 400:
@@ -826,10 +879,23 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 payload = {
                     "action_type": action_type,
                     "status": "failed",
+                    "request_method": method,
                     "url": url,
+                    "request_body_excerpt": _string_excerpt(sanitize_sensitive_payload(body)),
                     "message": str(exc),
                 }
 
+            log_policy_http_action_result(
+                action_type=action_type,
+                endpoint_id=decision.endpoint_id,
+                method=method,
+                url=target_url,
+                status=payload.get("status", "failed"),
+                http_status=payload.get("http_status"),
+                request_body=body,
+                response_excerpt=payload.get("response_excerpt"),
+                error_message=payload.get("message"),
+            )
             store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
             results.append(payload)
             continue

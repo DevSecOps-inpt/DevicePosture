@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { AdapterConfig, AuthProvider, ConditionGroup } from "@/types/platform";
 import {
@@ -49,6 +50,109 @@ function updateExecution(
       ...patch
     }
   }));
+}
+
+function parseValueList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function serializeValueList(values: string[]): string {
+  return values.join(", ");
+}
+
+function MultiValueEditor({
+  value,
+  onChange,
+  disabled = false,
+  placeholder,
+  suggestions = []
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  placeholder: string;
+  suggestions?: string[];
+}) {
+  const values = useMemo(() => parseValueList(value), [value]);
+  const [draft, setDraft] = useState("");
+  const listId = `policy-list-${placeholder.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+  const addValue = () => {
+    const candidate = draft.trim();
+    if (!candidate) return;
+    if (values.some((item) => item.toLowerCase() === candidate.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange(serializeValueList([...values, candidate]));
+    setDraft("");
+  };
+
+  const removeValue = (valueToRemove: string) => {
+    onChange(serializeValueList(values.filter((item) => item !== valueToRemove)));
+  };
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap gap-2">
+        {values.length === 0 ? (
+          <span className="text-xs text-slate-500">No values added yet.</span>
+        ) : (
+          values.map((item) => (
+            <span
+              key={item}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-slate-900 px-3 py-1 text-xs text-slate-200"
+            >
+              {item}
+              <button
+                type="button"
+                onClick={() => removeValue(item)}
+                disabled={disabled}
+                className="text-slate-400 hover:text-slate-100 disabled:opacity-40"
+                aria-label={`Remove ${item}`}
+              >
+                x
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addValue();
+            }
+          }}
+          disabled={disabled}
+          placeholder={placeholder}
+          className={inputClassName}
+          list={suggestions.length > 0 ? listId : undefined}
+        />
+        <button
+          type="button"
+          onClick={addValue}
+          disabled={disabled || !draft.trim()}
+          className="rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-slate-100 disabled:opacity-40"
+        >
+          +
+        </button>
+      </div>
+      {suggestions.length > 0 ? (
+        <datalist id={listId}>
+          {suggestions.map((item) => (
+            <option key={item} value={item} />
+          ))}
+        </datalist>
+      ) : null}
+    </div>
+  );
 }
 
 export function PolicyConditionsSection({
@@ -104,8 +208,7 @@ export function PolicyConditionsSection({
               value={value.conditions.osNameGroupId === "" ? "" : String(value.conditions.osNameGroupId)}
               onChange={(event) =>
                 updateConditions(onChange, {
-                  osNameGroupId: event.target.value ? Number(event.target.value) : "",
-                  osNameValues: ""
+                  osNameGroupId: event.target.value ? Number(event.target.value) : ""
                 })
               }
               disabled={!value.conditions.osNameEnabled}
@@ -118,19 +221,13 @@ export function PolicyConditionsSection({
                 </option>
               ))}
             </select>
-            <input
+            <MultiValueEditor
               value={value.conditions.osNameValues}
-              onChange={(event) => updateConditions(onChange, { osNameValues: event.target.value })}
+              onChange={(next) => updateConditions(onChange, { osNameValues: next })}
               disabled={!value.conditions.osNameEnabled || value.conditions.osNameGroupId !== ""}
-              placeholder="Comma-separated OS names"
-              className={inputClassName}
-              list="policy-os-name-suggestions"
+              placeholder="OS value"
+              suggestions={OS_NAME_SUGGESTIONS}
             />
-            <datalist id="policy-os-name-suggestions">
-              {OS_NAME_SUGGESTIONS.map((item) => (
-                <option key={item} value={item} />
-              ))}
-            </datalist>
           </div>
         </div>
       </div>
@@ -208,8 +305,7 @@ export function PolicyConditionsSection({
               value={value.conditions.patchesGroupId === "" ? "" : String(value.conditions.patchesGroupId)}
               onChange={(event) =>
                 updateConditions(onChange, {
-                  patchesGroupId: event.target.value ? Number(event.target.value) : "",
-                  patchesValues: ""
+                  patchesGroupId: event.target.value ? Number(event.target.value) : ""
                 })
               }
               disabled={!value.conditions.patchesEnabled}
@@ -222,12 +318,11 @@ export function PolicyConditionsSection({
                 </option>
               ))}
             </select>
-            <input
+            <MultiValueEditor
               value={value.conditions.patchesValues}
-              onChange={(event) => updateConditions(onChange, { patchesValues: event.target.value })}
+              onChange={(next) => updateConditions(onChange, { patchesValues: next })}
               disabled={!value.conditions.patchesEnabled || value.conditions.patchesGroupId !== ""}
-              placeholder="Comma-separated KBs, for example KB5066128, KB5034122"
-              className={inputClassName}
+              placeholder="KB value, for example KB5066128"
             />
           </div>
         </div>
@@ -271,8 +366,7 @@ export function PolicyConditionsSection({
               }
               onChange={(event) =>
                 updateConditions(onChange, {
-                  antivirusFamilyGroupId: event.target.value ? Number(event.target.value) : "",
-                  antivirusFamilyValues: ""
+                  antivirusFamilyGroupId: event.target.value ? Number(event.target.value) : ""
                 })
               }
               disabled={!value.conditions.antivirusFamilyEnabled}
@@ -285,19 +379,13 @@ export function PolicyConditionsSection({
                 </option>
               ))}
             </select>
-            <input
+            <MultiValueEditor
               value={value.conditions.antivirusFamilyValues}
-              onChange={(event) => updateConditions(onChange, { antivirusFamilyValues: event.target.value })}
+              onChange={(next) => updateConditions(onChange, { antivirusFamilyValues: next })}
               disabled={!value.conditions.antivirusFamilyEnabled || value.conditions.antivirusFamilyGroupId !== ""}
-              placeholder="Comma-separated family names"
-              className={inputClassName}
-              list="policy-av-family-suggestions"
+              placeholder="Antivirus family"
+              suggestions={ANTIVIRUS_FAMILY_SUGGESTIONS}
             />
-            <datalist id="policy-av-family-suggestions">
-              {ANTIVIRUS_FAMILY_SUGGESTIONS.map((item) => (
-                <option key={item} value={item} />
-              ))}
-            </datalist>
           </div>
         </div>
       </div>
@@ -332,19 +420,13 @@ export function PolicyConditionsSection({
             ))}
           </select>
           <div className="grid gap-2">
-            <input
+            <MultiValueEditor
               value={value.conditions.antivirusStatusValues}
-              onChange={(event) => updateConditions(onChange, { antivirusStatusValues: event.target.value })}
+              onChange={(next) => updateConditions(onChange, { antivirusStatusValues: next })}
               disabled={!value.conditions.antivirusStatusEnabled}
-              placeholder="Comma-separated statuses, for example running"
-              className={inputClassName}
-              list="policy-av-status-suggestions"
+              placeholder="Antivirus status"
+              suggestions={ANTIVIRUS_STATUS_SUGGESTIONS}
             />
-            <datalist id="policy-av-status-suggestions">
-              {ANTIVIRUS_STATUS_SUGGESTIONS.map((item) => (
-                <option key={item} value={item} />
-              ))}
-            </datalist>
           </div>
         </div>
       </div>

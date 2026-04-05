@@ -149,6 +149,16 @@ function joinValues(values: unknown): string {
   return "";
 }
 
+function joinValuesFromObject(raw: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const joined = joinValues(raw[key]);
+    if (joined) {
+      return joined;
+    }
+  }
+  return "";
+}
+
 function executionAction(
   actionType: PolicyActionType,
   objectGroup: string,
@@ -246,7 +256,12 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.osNameGroupId = parseGroupId(raw.group_id);
-        state.conditions.osNameValues = joinValues(raw.values) || joinValues(raw.name);
+        state.conditions.osNameValues = joinValuesFromObject(raw, [
+          "values",
+          "name",
+          "custom_values",
+          "items"
+        ]);
       } else {
         state.conditions.osNameValues = joinValues(condition.value);
       }
@@ -272,7 +287,13 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.patchesGroupId = parseGroupId(raw.group_id);
-        state.conditions.patchesValues = joinValues(raw.values) || joinValues(raw.required_kbs) || joinValues(raw.kbs);
+        state.conditions.patchesValues = joinValuesFromObject(raw, [
+          "values",
+          "required_kbs",
+          "kbs",
+          "custom_values",
+          "items"
+        ]);
       } else {
         state.conditions.patchesValues = joinValues(condition.value);
       }
@@ -286,7 +307,13 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       state.conditions.antivirusStatusOperator = normalizeMembershipOperator(condition.operator);
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
-        state.conditions.antivirusStatusValues = joinValues(raw.values) || joinValues(raw.status) || joinValues(raw.states);
+        state.conditions.antivirusStatusValues = joinValuesFromObject(raw, [
+          "values",
+          "status",
+          "states",
+          "custom_values",
+          "items"
+        ]);
       } else {
         state.conditions.antivirusStatusValues = joinValues(condition.value);
       }
@@ -301,8 +328,13 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.antivirusFamilyGroupId = parseGroupId(raw.group_id);
-        state.conditions.antivirusFamilyValues =
-          joinValues(raw.values) || joinValues(raw.identifiers) || joinValues(raw.families);
+        state.conditions.antivirusFamilyValues = joinValuesFromObject(raw, [
+          "values",
+          "identifiers",
+          "families",
+          "custom_values",
+          "items"
+        ]);
       } else {
         state.conditions.antivirusFamilyValues = joinValues(condition.value);
       }
