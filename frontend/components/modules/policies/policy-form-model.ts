@@ -82,6 +82,7 @@ export type PolicyEditorState = {
     gateGroupName: string;
     gateOperator: ExecutionIpGroupOperator;
   };
+  rawConditionsBackup: PolicyCondition[];
 };
 
 export function defaultPolicyEditorState(): PolicyEditorState {
@@ -125,7 +126,8 @@ export function defaultPolicyEditorState(): PolicyEditorState {
       gateEnabled: false,
       gateGroupName: "",
       gateOperator: "exists in"
-    }
+    },
+    rawConditionsBackup: []
   };
 }
 
@@ -157,6 +159,49 @@ function joinValuesFromObject(raw: Record<string, unknown>, keys: string[]): str
     }
   }
   return "";
+}
+
+function joinAllStringValues(
+  value: unknown,
+  options?: {
+    ignoredObjectKeys?: string[];
+  }
+): string {
+  const ignored = new Set((options?.ignoredObjectKeys ?? []).map((item) => item.toLowerCase()));
+  const values: string[] = [];
+
+  const walk = (current: unknown): void => {
+    if (typeof current === "string") {
+      const normalized = current.trim();
+      if (normalized) {
+        values.push(normalized);
+      }
+      return;
+    }
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        walk(item);
+      }
+      return;
+    }
+    if (current && typeof current === "object") {
+      for (const [key, nested] of Object.entries(current as Record<string, unknown>)) {
+        if (ignored.has(key.toLowerCase())) {
+          continue;
+        }
+        walk(nested);
+      }
+    }
+  };
+
+  walk(value);
+  const unique: string[] = [];
+  for (const item of values) {
+    if (!unique.some((existing) => existing.toLowerCase() === item.toLowerCase())) {
+      unique.push(item);
+    }
+  }
+  return unique.join(", ");
 }
 
 function executionAction(
@@ -238,6 +283,22 @@ function normalizeNumericOperator(operator: string | undefined): NumericOperator
   return "greater than or equal";
 }
 
+function isConditionManagedByForm(condition: PolicyCondition): boolean {
+  if (condition.type === "required_kbs") {
+    return true;
+  }
+  if (condition.type === "domain_membership") {
+    return true;
+  }
+  if (condition.type === "allowed_antivirus") {
+    return true;
+  }
+  if (condition.type === "os_version") {
+    return true;
+  }
+  return false;
+}
+
 export function policyToEditorState(policy: Policy): PolicyEditorState {
   const state = emptyPolicyEditorStateForExistingPolicy();
   state.name = policy.name;
@@ -248,6 +309,7 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       : "posture";
   state.targetAction = policy.target_action;
   state.isActive = policy.is_active;
+  state.rawConditionsBackup = Array.isArray(policy.conditions) ? [...policy.conditions] : [];
 
   for (const condition of policy.conditions ?? []) {
     if (condition.type === "os_version" && (condition.field === "os.name" || condition.field === "os")) {
@@ -256,12 +318,11 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.osNameGroupId = parseGroupId(raw.group_id);
-        state.conditions.osNameValues = joinValuesFromObject(raw, [
-          "values",
-          "name",
-          "custom_values",
-          "items"
-        ]);
+        state.conditions.osNameValues =
+          joinValuesFromObject(raw, ["values", "name", "custom_values", "items"]) ||
+          joinAllStringValues(raw, {
+            ignoredObjectKeys: ["group_id", "group_type", "provider_id"]
+          });
       } else {
         state.conditions.osNameValues = joinValues(condition.value);
       }
@@ -287,13 +348,11 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.patchesGroupId = parseGroupId(raw.group_id);
-        state.conditions.patchesValues = joinValuesFromObject(raw, [
-          "values",
-          "required_kbs",
-          "kbs",
-          "custom_values",
-          "items"
-        ]);
+        state.conditions.patchesValues =
+          joinValuesFromObject(raw, ["values", "required_kbs", "kbs", "custom_values", "items"]) ||
+          joinAllStringValues(raw, {
+            ignoredObjectKeys: ["group_id", "group_type", "provider_id"]
+          });
       } else {
         state.conditions.patchesValues = joinValues(condition.value);
       }
@@ -307,13 +366,11 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       state.conditions.antivirusStatusOperator = normalizeMembershipOperator(condition.operator);
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
-        state.conditions.antivirusStatusValues = joinValuesFromObject(raw, [
-          "values",
-          "status",
-          "states",
-          "custom_values",
-          "items"
-        ]);
+        state.conditions.antivirusStatusValues =
+          joinValuesFromObject(raw, ["values", "status", "states", "custom_values", "items"]) ||
+          joinAllStringValues(raw, {
+            ignoredObjectKeys: ["group_id", "group_type", "provider_id", "identifiers", "families"]
+          });
       } else {
         state.conditions.antivirusStatusValues = joinValues(condition.value);
       }
@@ -328,13 +385,11 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.antivirusFamilyGroupId = parseGroupId(raw.group_id);
-        state.conditions.antivirusFamilyValues = joinValuesFromObject(raw, [
-          "values",
-          "identifiers",
-          "families",
-          "custom_values",
-          "items"
-        ]);
+        state.conditions.antivirusFamilyValues =
+          joinValuesFromObject(raw, ["values", "identifiers", "families", "custom_values", "items"]) ||
+          joinAllStringValues(raw, {
+            ignoredObjectKeys: ["group_id", "group_type", "provider_id"]
+          });
       } else {
         state.conditions.antivirusFamilyValues = joinValues(condition.value);
       }
@@ -343,7 +398,11 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     if (condition.type === "allowed_antivirus") {
       state.conditions.antivirusFamilyEnabled = true;
       state.conditions.antivirusFamilyOperator = normalizeMembershipOperator(condition.operator);
-      state.conditions.antivirusFamilyValues = joinValues(condition.value);
+      state.conditions.antivirusFamilyValues =
+        joinValues(condition.value) ||
+        joinAllStringValues(condition.value, {
+          ignoredObjectKeys: ["group_id", "group_type", "provider_id"]
+        });
       continue;
     }
 
@@ -508,6 +567,17 @@ export function buildPolicyConditions(state: PolicyEditorState): PolicyCondition
     });
   }
 
+  const unmanagedBackupConditions = state.rawConditionsBackup.filter(
+    (condition) => !isConditionManagedByForm(condition)
+  );
+  if (unmanagedBackupConditions.length > 0) {
+    conditions.push(...unmanagedBackupConditions);
+  }
+
+  if (conditions.length === 0 && state.rawConditionsBackup.length > 0) {
+    return [...state.rawConditionsBackup];
+  }
+
   return conditions;
 }
 
@@ -621,7 +691,8 @@ function emptyPolicyEditorStateForExistingPolicy(): PolicyEditorState {
       gateEnabled: false,
       gateGroupName: "",
       gateOperator: "exists in"
-    }
+    },
+    rawConditionsBackup: []
   };
 }
 
