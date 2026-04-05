@@ -9,6 +9,7 @@ from fastapi import Header, HTTPException, status
 DEFAULT_CORS_ORIGINS = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://192.168.4.105:3000",
 )
 
 
