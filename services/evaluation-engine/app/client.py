@@ -26,8 +26,15 @@ def fetch_latest_telemetry(endpoint_id: str) -> EndpointTelemetry:
         timeout=HTTP_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    payload = response.json()["raw_payload"]
-    return EndpointTelemetry.model_validate(payload)
+    body = response.json()
+    payload = body["raw_payload"]
+    telemetry = EndpointTelemetry.model_validate(payload)
+    source_ip = body.get("source_ip")
+    if source_ip:
+        enriched_extras = dict(telemetry.extras or {})
+        enriched_extras["connection_source_ip"] = source_ip
+        telemetry = telemetry.model_copy(update={"extras": enriched_extras})
+    return telemetry
 
 
 def fetch_policy(endpoint_id: str) -> PosturePolicy | None:

@@ -5,6 +5,14 @@ from posture_shared.models.telemetry import EndpointTelemetry
 from app.evaluators.base import EvaluatorRegistry
 
 
+def resolve_decision_ip(telemetry: EndpointTelemetry) -> str | None:
+    extras = telemetry.extras if isinstance(telemetry.extras, dict) else {}
+    source_ip = extras.get("connection_source_ip")
+    if isinstance(source_ip, str) and source_ip.strip():
+        return source_ip.strip()
+    return telemetry.network.ipv4
+
+
 def build_execution_plan(policy: PosturePolicy | None, compliant: bool) -> dict:
     if policy is None or policy.execution is None:
         return {}
@@ -34,7 +42,7 @@ def evaluate_telemetry(
     if policy is None:
         return ComplianceDecision(
             endpoint_id=telemetry.endpoint_id,
-            endpoint_ip=telemetry.network.ipv4,
+            endpoint_ip=resolve_decision_ip(telemetry),
             compliant=True,
             recommended_action="allow",
             reasons=[],
@@ -48,7 +56,7 @@ def evaluate_telemetry(
     compliant = len(reasons) == 0
     return ComplianceDecision(
         endpoint_id=telemetry.endpoint_id,
-        endpoint_ip=telemetry.network.ipv4,
+        endpoint_ip=resolve_decision_ip(telemetry),
         policy_id=policy.id,
         policy_name=policy.name,
         compliant=compliant,
