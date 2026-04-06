@@ -8,6 +8,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.db
+*.db-wal
+*.db-shm
+services/*/logs/*.log
 
 # Beads / Dolt files (added by bd init)
 .dolt/
