@@ -23,7 +23,7 @@ type PolicyFormSectionsProps = {
   conditionGroups?: ConditionGroup[];
   ldapProviders?: AuthProvider[];
   adapterProfiles?: AdapterConfig[];
-  ipGroups?: Array<{ name: string }>;
+  ipGroups?: Array<{ id: string; name: string }>;
 };
 
 function updateConditions(
@@ -590,13 +590,39 @@ export function PolicyExecutionSection({
           </select>
         </label>
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Object group</span>
-          <input
-            value={value.execution.objectGroup}
-            onChange={(event) => updateExecution(onChange, { objectGroup: event.target.value })}
-            className={inputClassName}
-            placeholder="NON_COMPLIANT_ENDPOINTS"
-          />
+          <span className="text-sm text-slate-300">Object group (policy target)</span>
+          <div className="grid gap-2">
+            <select
+              value={value.execution.objectGroupId}
+              onChange={(event) => {
+                const selectedId = event.target.value;
+                const selectedGroup = ipGroups.find((group) => group.id === selectedId);
+                updateExecution(onChange, {
+                  objectGroupId: selectedId,
+                  objectGroup: selectedGroup?.name ?? value.execution.objectGroup
+                });
+              }}
+              className={inputClassName}
+            >
+              <option value="">Select group by ID (rename-safe)</option>
+              {ipGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name} ({group.id})
+                </option>
+              ))}
+            </select>
+            <input
+              value={value.execution.objectGroup}
+              onChange={(event) =>
+                updateExecution(onChange, {
+                  objectGroup: event.target.value,
+                  objectGroupId: ""
+                })
+              }
+              className={inputClassName}
+              placeholder="Or enter group name manually"
+            />
+          </div>
         </label>
       </div>
 

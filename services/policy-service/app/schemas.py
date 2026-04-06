@@ -17,10 +17,13 @@ def _validate_policy_scope(
     policy_scope: PolicyScope,
     lifecycle_event_type: LifecycleEventType | None,
 ) -> tuple[PolicyScope, LifecycleEventType | None]:
+    supported_lifecycle_events = {"telemetry_received", "active_to_inactive"}
     if policy_scope == "lifecycle" and lifecycle_event_type is None:
         raise ValueError("lifecycle_event_type is required when policy_scope is 'lifecycle'")
     if policy_scope == "posture":
         return "posture", None
+    if lifecycle_event_type not in supported_lifecycle_events:
+        raise ValueError("lifecycle_event_type must be one of: telemetry_received, active_to_inactive")
     return policy_scope, lifecycle_event_type
 
 

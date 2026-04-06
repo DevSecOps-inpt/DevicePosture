@@ -1008,7 +1008,7 @@ def resolve_lifecycle_policy(
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> PolicyResponse | None:
-    if event_type not in {"telemetry_received", "inactive_to_active", "active_to_inactive", "first_seen", "repeat_seen"}:
+    if event_type not in {"telemetry_received", "active_to_inactive"}:
         raise HTTPException(status_code=400, detail="Unsupported lifecycle event type")
 
     policy = resolve_assigned_policy(

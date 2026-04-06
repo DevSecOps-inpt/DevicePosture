@@ -141,7 +141,7 @@ export const api = {
       policy_id: number;
       policy_name: string;
       policy_scope: "posture" | "lifecycle";
-      lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+      lifecycle_event_type: "telemetry_received" | "active_to_inactive" | null;
       assignment_type: "endpoint" | "group" | "default";
       assignment_value: string;
     }>>(`${POLICY_SERVICE_URL}/endpoints/${endpointId}/assigned-policies`);
@@ -157,7 +157,6 @@ export const api = {
     policy_scope?: "posture" | "lifecycle";
     lifecycle_event_type?:
       | "telemetry_received"
-      | "inactive_to_active"
       | "active_to_inactive"
       | null;
     target_action: "allow" | "quarantine" | "block";
@@ -269,7 +268,7 @@ export const api = {
             policy_id: number;
             policy_name: string;
             policy_scope: "posture" | "lifecycle";
-            lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+            lifecycle_event_type: "telemetry_received" | "active_to_inactive" | null;
             assignment_type: "endpoint" | "group" | "default";
             assignment_value: string;
           }>
@@ -285,7 +284,7 @@ export const api = {
           policy_id: number;
           policy_name: string;
           policy_scope: "posture" | "lifecycle";
-          lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+          lifecycle_event_type: "telemetry_received" | "active_to_inactive" | null;
           assignment_type: "endpoint" | "group" | "default";
           assignment_value: string;
         }>

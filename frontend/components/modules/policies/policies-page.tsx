@@ -264,10 +264,8 @@ export function PoliciesPage() {
                 }
                 className="w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
               >
-                <option value="posture">posture</option>
-                <option value="telemetry_received">lifecycle: telemetry received</option>
-                <option value="inactive_to_active">lifecycle: inactive to active</option>
-                <option value="active_to_inactive">lifecycle: active to inactive</option>
+                <option value="telemetry_received">telemetry sent</option>
+                <option value="active_to_inactive">active to inactive</option>
               </select>
             </label>
             <label className="space-y-2">

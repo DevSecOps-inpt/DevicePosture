@@ -17,6 +17,13 @@ class RequiredKBsEvaluator(EvaluatorPlugin):
         condition: PolicyCondition,
     ) -> list[EvaluationReason]:
         required = {item.upper() for item in normalize_list(condition.value)}
+        if not required:
+            return [
+                EvaluationReason(
+                    check_type=self.condition_type,
+                    message="Required KB condition has no expected values configured",
+                )
+            ]
         present = {item.id.upper() for item in telemetry.hotfixes}
         operator = normalize_operator(condition.operator)
 
@@ -36,7 +43,7 @@ class RequiredKBsEvaluator(EvaluatorPlugin):
         for expected in sorted(required):
             if "*" in expected:
                 pattern = "^" + re.escape(expected).replace(r"\*", ".*") + "$"
-                if not any(re.match(pattern, actual) for actual in present):
+                if not any(re.match(pattern, actual, flags=re.IGNORECASE) for actual in present):
                     missing.append(expected)
             elif expected not in present:
                 missing.append(expected)

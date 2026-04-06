@@ -67,7 +67,6 @@ export interface Policy {
   policy_scope?: "posture" | "lifecycle";
   lifecycle_event_type?:
     | "telemetry_received"
-    | "inactive_to_active"
     | "active_to_inactive"
     | null;
   target_action: "allow" | "quarantine" | "block";

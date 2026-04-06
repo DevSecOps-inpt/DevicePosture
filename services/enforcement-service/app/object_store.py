@@ -109,6 +109,10 @@ def find_group_by_name(db: Session, group_name: str) -> IpGroupModel | None:
     return db.scalar(select(IpGroupModel).where(IpGroupModel.name == group_name))
 
 
+def find_group_by_id(db: Session, group_id: str) -> IpGroupModel | None:
+    return db.scalar(select(IpGroupModel).where(IpGroupModel.group_id == group_id))
+
+
 def find_ip_host_object(db: Session, ip_address: str) -> IpObjectModel | None:
     return db.scalar(
         select(IpObjectModel).where(

@@ -1,6 +1,6 @@
 import type { Policy, PolicyActionType, PolicyCondition } from "@/types/platform";
 
-export type PolicyType = "posture" | "telemetry_received" | "inactive_to_active" | "active_to_inactive";
+export type PolicyType = "telemetry_received" | "active_to_inactive";
 export type MembershipOperator = "exists in" | "does not exist in" | "contains";
 export type NumericOperator =
   | "greater than"
@@ -74,6 +74,7 @@ export type PolicyEditorState = {
     adapter: string;
     adapterProfile: string;
     objectGroup: string;
+    objectGroupId: string;
     objectOnCompliant: GroupAction;
     objectOnNonCompliant: GroupAction;
     adapterOnCompliant: AdapterAction;
@@ -89,7 +90,7 @@ export function defaultPolicyEditorState(): PolicyEditorState {
   return {
     name: "",
     description: "",
-    policyType: "posture",
+    policyType: "telemetry_received",
     targetAction: "quarantine",
     isActive: true,
     conditions: {
@@ -119,6 +120,7 @@ export function defaultPolicyEditorState(): PolicyEditorState {
       adapter: "fortigate",
       adapterProfile: "",
       objectGroup: "NON_COMPLIANT_ENDPOINTS",
+      objectGroupId: "",
       objectOnCompliant: "remove",
       objectOnNonCompliant: "add",
       adapterOnCompliant: "none",
@@ -207,6 +209,7 @@ function joinAllStringValues(
 function executionAction(
   actionType: PolicyActionType,
   objectGroup: string,
+  objectGroupId: string,
   extraParameters: Record<string, unknown> = {}
 ) {
   return {
@@ -214,6 +217,7 @@ function executionAction(
     enabled: true,
     parameters: {
       ...(objectGroup ? { group_name: objectGroup } : {}),
+      ...(objectGroupId ? { group_id: objectGroupId } : {}),
       ...extraParameters
     }
   };
@@ -304,9 +308,9 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
   state.name = policy.name;
   state.description = policy.description ?? "";
   state.policyType =
-    policy.policy_scope === "lifecycle"
-      ? (policy.lifecycle_event_type as Exclude<PolicyType, "posture"> | null) ?? "telemetry_received"
-      : "posture";
+    policy.lifecycle_event_type === "active_to_inactive"
+      ? "active_to_inactive"
+      : "telemetry_received";
   state.targetAction = policy.target_action;
   state.isActive = policy.is_active;
   state.rawConditionsBackup = Array.isArray(policy.conditions) ? [...policy.conditions] : [];
@@ -439,6 +443,20 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     state.execution.adapter = execution.adapter ?? "fortigate";
     state.execution.adapterProfile = execution.adapter_profile ?? "";
     state.execution.objectGroup = execution.object_group ?? "";
+    const actionWithGroupId = [...(onCompliant ?? []), ...(onNonCompliant ?? [])].find(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        item.parameters &&
+        typeof item.parameters === "object" &&
+        "group_id" in item.parameters
+    );
+    if (actionWithGroupId && actionWithGroupId.parameters) {
+      state.execution.objectGroupId = String(actionWithGroupId.parameters.group_id ?? "");
+      if (!state.execution.objectGroup && actionWithGroupId.parameters.group_name) {
+        state.execution.objectGroup = String(actionWithGroupId.parameters.group_name ?? "");
+      }
+    }
     state.execution.objectOnCompliant = resolveGroupAction(
       onCompliant,
       "object.add_ip_to_group",
@@ -590,33 +608,34 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
     parameters: Record<string, unknown>;
   }> = [];
   const objectGroup = state.execution.objectGroup.trim();
+  const objectGroupId = state.execution.objectGroupId.trim();
 
   if (state.execution.objectOnCompliant === "add") {
-    onCompliant.push(executionAction("object.add_ip_to_group", objectGroup));
+    onCompliant.push(executionAction("object.add_ip_to_group", objectGroup, objectGroupId));
   }
   if (state.execution.objectOnCompliant === "remove") {
-    onCompliant.push(executionAction("object.remove_ip_from_group", objectGroup));
+    onCompliant.push(executionAction("object.remove_ip_from_group", objectGroup, objectGroupId));
   }
   if (state.execution.objectOnNonCompliant === "add") {
-    onNonCompliant.push(executionAction("object.add_ip_to_group", objectGroup));
+    onNonCompliant.push(executionAction("object.add_ip_to_group", objectGroup, objectGroupId));
   }
   if (state.execution.objectOnNonCompliant === "remove") {
-    onNonCompliant.push(executionAction("object.remove_ip_from_group", objectGroup));
+    onNonCompliant.push(executionAction("object.remove_ip_from_group", objectGroup, objectGroupId));
   }
 
   if (state.execution.adapterOnCompliant === "push_group") {
-    onCompliant.push(executionAction("adapter.sync_group", objectGroup));
+    onCompliant.push(executionAction("adapter.sync_group", objectGroup, objectGroupId));
   } else if (state.execution.adapterOnCompliant === "add_ip") {
-    onCompliant.push(executionAction("adapter.add_ip_to_group", objectGroup));
+    onCompliant.push(executionAction("adapter.add_ip_to_group", objectGroup, objectGroupId));
   } else if (state.execution.adapterOnCompliant === "remove_ip") {
-    onCompliant.push(executionAction("adapter.remove_ip_from_group", objectGroup));
+    onCompliant.push(executionAction("adapter.remove_ip_from_group", objectGroup, objectGroupId));
   }
   if (state.execution.adapterOnNonCompliant === "push_group") {
-    onNonCompliant.push(executionAction("adapter.sync_group", objectGroup));
+    onNonCompliant.push(executionAction("adapter.sync_group", objectGroup, objectGroupId));
   } else if (state.execution.adapterOnNonCompliant === "add_ip") {
-    onNonCompliant.push(executionAction("adapter.add_ip_to_group", objectGroup));
+    onNonCompliant.push(executionAction("adapter.add_ip_to_group", objectGroup, objectGroupId));
   } else if (state.execution.adapterOnNonCompliant === "remove_ip") {
-    onNonCompliant.push(executionAction("adapter.remove_ip_from_group", objectGroup));
+    onNonCompliant.push(executionAction("adapter.remove_ip_from_group", objectGroup, objectGroupId));
   }
 
   return {
@@ -639,14 +658,11 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
 }
 
 export function buildPolicyPayload(state: PolicyEditorState) {
-  const isLifecyclePolicy = state.policyType !== "posture";
   return {
     name: state.name.trim(),
     description: state.description.trim() || null,
-    policy_scope: isLifecyclePolicy ? ("lifecycle" as const) : ("posture" as const),
-    lifecycle_event_type: isLifecyclePolicy
-      ? (state.policyType as Exclude<PolicyType, "posture">)
-      : null,
+    policy_scope: "lifecycle" as const,
+    lifecycle_event_type: state.policyType,
     target_action: state.targetAction,
     is_active: state.isActive,
     conditions: buildPolicyConditions(state),
@@ -684,6 +700,7 @@ function emptyPolicyEditorStateForExistingPolicy(): PolicyEditorState {
       adapter: "fortigate",
       adapterProfile: "",
       objectGroup: "",
+      objectGroupId: "",
       objectOnCompliant: "none",
       objectOnNonCompliant: "none",
       adapterOnCompliant: "none",
@@ -700,6 +717,30 @@ export function validatePolicyEditorState(state: PolicyEditorState): string | nu
   if (!state.name.trim()) {
     return "Policy name is required.";
   }
+  if (state.conditions.osNameEnabled && state.conditions.osNameGroupId === "" && !splitValues(state.conditions.osNameValues).length) {
+    return "OS name condition is enabled but has no values.";
+  }
+  if (state.conditions.patchesEnabled && state.conditions.patchesGroupId === "" && !splitValues(state.conditions.patchesValues).length) {
+    return "Patches condition is enabled but has no values.";
+  }
+  if (
+    state.conditions.antivirusFamilyEnabled &&
+    state.conditions.antivirusFamilyGroupId === "" &&
+    !splitValues(state.conditions.antivirusFamilyValues).length
+  ) {
+    return "Antivirus family condition is enabled but has no values.";
+  }
+  if (state.conditions.antivirusStatusEnabled && !splitValues(state.conditions.antivirusStatusValues).length) {
+    return "Antivirus status condition is enabled but has no values.";
+  }
+  const needsObjectGroup =
+    state.execution.objectOnCompliant !== "none" ||
+    state.execution.objectOnNonCompliant !== "none" ||
+    state.execution.adapterOnCompliant !== "none" ||
+    state.execution.adapterOnNonCompliant !== "none";
+  if (needsObjectGroup && !state.execution.objectGroup.trim() && !state.execution.objectGroupId.trim()) {
+    return "Object group is required when object/adapter actions are enabled.";
+  }
   if (state.conditions.domainMembershipEnabled && state.conditions.domainLdapProviderId === "") {
     return "Select an enabled LDAP server for the domain-join condition.";
   }
@@ -707,14 +748,8 @@ export function validatePolicyEditorState(state: PolicyEditorState): string | nu
 }
 
 export function policyTypeLabel(policy: Policy): string {
-  if (policy.policy_scope !== "lifecycle") {
-    return "posture";
-  }
-  if (policy.lifecycle_event_type === "inactive_to_active") {
-    return "inactive -> active";
-  }
   if (policy.lifecycle_event_type === "active_to_inactive") {
     return "active -> inactive";
   }
-  return "telemetry received";
+  return "telemetry sent";
 }

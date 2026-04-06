@@ -48,7 +48,7 @@ export function EndpointsPage() {
                 policy_id: number;
                 policy_name: string;
                 policy_scope: "posture" | "lifecycle";
-                lifecycle_event_type: "telemetry_received" | "inactive_to_active" | "active_to_inactive" | null;
+                lifecycle_event_type: "telemetry_received" | "active_to_inactive" | null;
                 assignment_type: "endpoint" | "group" | "default";
                 assignment_value: string;
               }>

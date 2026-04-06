@@ -23,11 +23,9 @@ EVENT_FIRST_SEEN = EVENT_TELEMETRY_RECEIVED
 EVENT_REPEAT_SEEN = EVENT_TELEMETRY_RECEIVED
 
 LIFECYCLE_POLICY_EVENT_MAP = {
-    EVENT_TELEMETRY_RECEIVED: ["telemetry_received", "repeat_seen", "first_seen"],
-    EVENT_INACTIVE_TO_ACTIVE: ["inactive_to_active", "repeat_seen"],
+    EVENT_TELEMETRY_RECEIVED: ["telemetry_received"],
+    EVENT_INACTIVE_TO_ACTIVE: [],
     EVENT_ACTIVE_TO_INACTIVE: ["active_to_inactive"],
-    "endpoint.first_seen": ["first_seen"],
-    "endpoint.repeat_seen": ["repeat_seen"],
 }
 
 POLICY_SERVICE_URL = os.getenv("POLICY_SERVICE_URL", "http://127.0.0.1:8002")

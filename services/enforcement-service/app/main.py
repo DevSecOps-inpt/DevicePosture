@@ -45,6 +45,7 @@ from app.object_store import (
     add_object_to_group,
     ensure_ip_group,
     ensure_ip_object,
+    find_group_by_id,
     find_group_by_name,
     find_ip_host_object,
     find_object_by_id,
@@ -457,6 +458,53 @@ def persist_enforcement_result(db: Session, result: EnforcementResult) -> None:
     )
 
 
+def resolve_group_reference(
+    *,
+    db: Session,
+    group_name: str | None,
+    group_id: str | None,
+) -> IpGroupModel | None:
+    if group_id:
+        by_id = find_group_by_id(db, str(group_id).strip())
+        if by_id is not None:
+            return by_id
+    if group_name:
+        by_name = find_group_by_name(db, str(group_name).strip())
+        if by_name is not None:
+            return by_name
+    return None
+
+
+def append_policy_action_result(
+    *,
+    db: Session,
+    endpoint_id: str,
+    results: list[dict],
+    payload: dict,
+    event_type: str | None = None,
+) -> None:
+    resolved_event_type = event_type
+    if resolved_event_type is None:
+        status_value = str(payload.get("status") or "").strip().lower()
+        if status_value == "failed":
+            resolved_event_type = "endpoint.policy_action.failed"
+        elif status_value == "skipped":
+            resolved_event_type = "endpoint.policy_action.skipped"
+        else:
+            resolved_event_type = "endpoint.policy_action.executed"
+
+    store_audit_event(db, resolved_event_type, endpoint_id, payload)
+    logger.info(
+        "policy_action endpoint_id=%s event_type=%s action_type=%s status=%s details=%s",
+        endpoint_id,
+        resolved_event_type,
+        payload.get("action_type"),
+        payload.get("status"),
+        _string_excerpt(payload, 800),
+    )
+    results.append(payload)
+
+
 def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]:
     plan = decision.execution_plan or {}
     actions = plan.get("actions", [])
@@ -473,6 +521,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
         "policy_name": decision.policy_name or "",
         "object_group": default_group_name or "",
     }
+    results: list[dict] = []
 
     execution_gate = plan.get("execution_gate") if isinstance(plan, dict) else None
     if isinstance(execution_gate, dict):
@@ -487,11 +536,17 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "status": "skipped",
                     "message": "Execution gate is enabled but group_name is missing",
                 }
-                store_audit_event(db, "endpoint.policy_action.skipped", decision.endpoint_id, payload)
-                return [payload]
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload=payload,
+                    event_type="endpoint.policy_action.skipped",
+                )
+                return results
 
             in_group = False
-            group = find_group_by_name(db, gate_group_name)
+            group = resolve_group_reference(db=db, group_name=gate_group_name, group_id=None)
             if group is not None and decision.endpoint_ip:
                 ip_object = find_ip_host_object(db, decision.endpoint_ip)
                 if ip_object is not None:
@@ -516,10 +571,14 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "endpoint_ip": decision.endpoint_ip,
                     "message": "Execution gate condition did not match. Policy actions were skipped.",
                 }
-                store_audit_event(db, "endpoint.policy_action.skipped", decision.endpoint_id, payload)
-                return [payload]
-
-    results: list[dict] = []
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload=payload,
+                    event_type="endpoint.policy_action.skipped",
+                )
+                return results
 
     for raw_action in actions:
         if not isinstance(raw_action, dict):
@@ -533,17 +592,49 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             parameters = {}
         rendered_parameters = render_templates(parameters, context)
         group_name = rendered_parameters.get("group_name") or default_group_name
+        group_id = rendered_parameters.get("group_id")
+        resolved_group = resolve_group_reference(
+            db=db,
+            group_name=str(group_name) if group_name else None,
+            group_id=str(group_id) if group_id else None,
+        )
+        if resolved_group is not None:
+            group_name = resolved_group.name
 
         if action_type == "object.add_ip_to_group":
             if not decision.endpoint_ip:
-                results.append({"action_type": action_type, "status": "skipped", "message": "endpoint_ip is missing"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "skipped", "message": "endpoint_ip is missing"},
+                    event_type="endpoint.policy_action.skipped",
+                )
                 continue
             if not group_name:
-                results.append({"action_type": action_type, "status": "failed", "message": "group_name is missing"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "failed", "message": "group_name is missing"},
+                )
+                continue
+            if group_id and resolved_group is None:
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={
+                        "action_type": action_type,
+                        "status": "failed",
+                        "group_id": group_id,
+                        "message": "group_id not found",
+                    },
+                )
                 continue
 
             object_name = rendered_parameters.get("object_name") or f"endpoint-{decision.endpoint_id}"
-            group = ensure_ip_group(db, group_name)
+            group = resolved_group if resolved_group is not None else ensure_ip_group(db, str(group_name))
             ip_object = ensure_ip_object(
                 db=db,
                 name=str(object_name),
@@ -560,19 +651,29 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 "object_id": ip_object.object_id,
                 "operation": "added" if added else "already_present",
             }
-            store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-            results.append(payload)
+            append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
 
         if action_type == "object.remove_ip_from_group":
             if not decision.endpoint_ip:
-                results.append({"action_type": action_type, "status": "skipped", "message": "endpoint_ip is missing"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "skipped", "message": "endpoint_ip is missing"},
+                    event_type="endpoint.policy_action.skipped",
+                )
                 continue
             if not group_name:
-                results.append({"action_type": action_type, "status": "failed", "message": "group_name is missing"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "failed", "message": "group_name is missing"},
+                )
                 continue
 
-            group = find_group_by_name(db, str(group_name))
+            group = resolved_group
             if group is None:
                 payload = {
                     "action_type": action_type,
@@ -580,8 +681,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "group_name": group_name,
                     "message": "group not found",
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
 
             ip_object = find_ip_host_object(db, decision.endpoint_ip)
@@ -592,8 +692,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "group_name": group_name,
                     "message": "ip object not found",
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
 
             removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
@@ -604,25 +703,33 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 "object_id": ip_object.object_id,
                 "operation": "removed" if removed else "already_absent",
             }
-            store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-            results.append(payload)
+            append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
 
         if action_type in {"adapter.add_ip_to_group", "adapter.remove_ip_from_group", "adapter.sync_group"}:
             if not decision.endpoint_ip and action_type != "adapter.sync_group":
-                results.append({"action_type": action_type, "status": "skipped", "message": "endpoint_ip is missing"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "skipped", "message": "endpoint_ip is missing"},
+                    event_type="endpoint.policy_action.skipped",
+                )
                 continue
 
             selected_adapter = str(rendered_parameters.get("adapter") or adapter_name)
             selected_profile = rendered_parameters.get("adapter_profile") or adapter_profile
             profile_name, settings = resolve_adapter_settings(db, selected_adapter, selected_profile)
             if profile_name is None and selected_profile:
-                results.append(
-                    {
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={
                         "action_type": action_type,
                         "status": "failed",
                         "message": f"adapter profile '{selected_profile}' not found or inactive",
-                    }
+                    },
                 )
                 continue
 
@@ -639,9 +746,14 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             }
             if adapter_action == "sync_group":
                 if not group_name:
-                    results.append({"action_type": action_type, "status": "failed", "message": "group_name is missing"})
+                    append_policy_action_result(
+                        db=db,
+                        endpoint_id=decision.endpoint_id,
+                        results=results,
+                        payload={"action_type": action_type, "status": "failed", "message": "group_name is missing"},
+                    )
                     continue
-                group = find_group_by_name(db, str(group_name))
+                group = resolved_group or find_group_by_name(db, str(group_name))
                 decision_payload["group_ips"] = [] if group is None else list_group_host_ips(db, group)
 
             action = EnforcementAction(
@@ -673,8 +785,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "group_name": group_name,
                     "message": f"adapter execution crashed: {exc}",
                 }
-            store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-            results.append(payload)
+            append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
 
         if action_type == "adapter.post_event":
@@ -684,26 +795,39 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "status": "skipped",
                     "message": "Policy HTTP actions are disabled by server configuration",
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload=payload,
+                    event_type="endpoint.policy_action.skipped",
+                )
                 continue
 
             selected_adapter = str(rendered_parameters.get("adapter") or adapter_name)
             selected_profile = rendered_parameters.get("adapter_profile") or adapter_profile
             profile_name, settings = resolve_adapter_settings(db, selected_adapter, selected_profile)
             if profile_name is None and selected_profile:
-                results.append(
-                    {
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={
                         "action_type": action_type,
                         "status": "failed",
                         "message": f"adapter profile '{selected_profile}' not found or inactive",
-                    }
+                    },
                 )
                 continue
 
             endpoint_path = str(rendered_parameters.get("path") or "").strip()
             if not endpoint_path:
-                results.append({"action_type": action_type, "status": "failed", "message": "path is required"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "failed", "message": "path is required"},
+                )
                 continue
 
             base_url = str(settings.get("base_url") or "")
@@ -718,8 +842,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "url": target_url,
                     "message": reason,
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
             circuit_key = _circuit_key_for_url(target_url)
             is_open, opened_until = _circuit_is_open(circuit_key)
@@ -732,8 +855,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "url": target_url,
                     "message": f"Circuit breaker is open until {datetime.fromtimestamp(opened_until, tz=timezone.utc).isoformat()}",
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
             method = str(rendered_parameters.get("method") or "POST").upper()
             timeout = float(rendered_parameters.get("timeout_seconds", settings.get("timeout_seconds", HTTP_TIMEOUT_SECONDS)))
@@ -803,8 +925,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 response_excerpt=payload.get("response_excerpt"),
                 error_message=payload.get("message"),
             )
-            store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-            results.append(payload)
+            append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
 
         if action_type in {"http.get", "http.post"}:
@@ -814,13 +935,23 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "status": "skipped",
                     "message": "Policy HTTP actions are disabled by server configuration",
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload=payload,
+                    event_type="endpoint.policy_action.skipped",
+                )
                 continue
 
             url = rendered_parameters.get("url")
             if not url:
-                results.append({"action_type": action_type, "status": "failed", "message": "url is required"})
+                append_policy_action_result(
+                    db=db,
+                    endpoint_id=decision.endpoint_id,
+                    results=results,
+                    payload={"action_type": action_type, "status": "failed", "message": "url is required"},
+                )
                 continue
 
             allowed, reason = _is_http_target_allowed(str(url))
@@ -831,8 +962,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "url": str(url),
                     "message": reason,
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
             target_url = str(url)
             circuit_key = _circuit_key_for_url(target_url)
@@ -844,8 +974,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     "url": target_url,
                     "message": f"Circuit breaker is open until {datetime.fromtimestamp(opened_until, tz=timezone.utc).isoformat()}",
                 }
-                store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-                results.append(payload)
+                append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
 
             method = "GET" if action_type == "http.get" else "POST"
@@ -896,16 +1025,18 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 response_excerpt=payload.get("response_excerpt"),
                 error_message=payload.get("message"),
             )
-            store_audit_event(db, "endpoint.policy_action.executed", decision.endpoint_id, payload)
-            results.append(payload)
+            append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
 
-        results.append(
-            {
+        append_policy_action_result(
+            db=db,
+            endpoint_id=decision.endpoint_id,
+            results=results,
+            payload={
                 "action_type": action_type,
                 "status": "failed",
                 "message": f"unsupported action_type '{action_type}'",
-            }
+            },
         )
 
     return results

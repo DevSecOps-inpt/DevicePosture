@@ -85,6 +85,13 @@ class OSVersionEvaluator(EvaluatorPlugin):
 
         if field in {"os.name", "os"}:
             expected_names = {item.lower() for item in normalize_list(raw_value)}
+            if not expected_names:
+                return [
+                    EvaluationReason(
+                        check_type=self.condition_type,
+                        message="OS name condition has no expected values configured",
+                    )
+                ]
             actual_values = {actual_name.lower()} if actual_name else set()
             if evaluate_membership(actual_values=actual_values, expected_values=expected_names, operator=operator):
                 return []

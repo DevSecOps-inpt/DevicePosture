@@ -50,19 +50,19 @@ def evaluate_membership(
     expected_values: set[str],
     operator: str,
 ) -> bool:
-    if not expected_values:
-        return True
-    actual_items = {item for item in actual_values if item}
-    expected_items = {item for item in expected_values if item}
+    actual_items = {str(item).strip() for item in actual_values if str(item).strip()}
+    expected_items = {str(item).strip() for item in expected_values if str(item).strip()}
     if not expected_items:
-        return True
+        return False
 
     def _matches(actual: str, expected: str) -> bool:
-        if "*" not in expected:
-            return actual == expected
+        actual_normalized = actual.strip()
+        expected_normalized = expected.strip()
+        if "*" not in expected_normalized:
+            return actual_normalized.casefold() == expected_normalized.casefold()
         # Support shell-style "*" wildcard inside string values.
-        wildcard_pattern = "^" + re.escape(expected).replace(r"\*", ".*") + "$"
-        return re.match(wildcard_pattern, actual) is not None
+        wildcard_pattern = "^" + re.escape(expected_normalized).replace(r"\*", ".*") + "$"
+        return re.match(wildcard_pattern, actual_normalized, flags=re.IGNORECASE) is not None
 
     def _any_match(expected: str) -> bool:
         return any(_matches(actual, expected) for actual in actual_items)

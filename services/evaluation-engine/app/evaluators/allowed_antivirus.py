@@ -18,6 +18,13 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
         operator = normalize_operator(condition.operator)
         field = (condition.field or "antivirus.type").strip().lower()
         expected = {item.lower() for item in normalize_list(condition.value)}
+        if not expected:
+            return [
+                EvaluationReason(
+                    check_type=self.condition_type,
+                    message="Antivirus condition has no expected values configured",
+                )
+            ]
 
         if field in {"antivirus.status", "av.status"}:
             actual_statuses = {
