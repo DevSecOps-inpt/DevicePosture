@@ -82,7 +82,36 @@ EOF
 get_service_pid() {
   local name="$1"
   local port="${SERVICE_PORTS[$name]}"
-  pgrep -f "$PYTHON_PATH -m uvicorn .* --port $port" | head -n 1 || true
+  local pid_file="$RUN_PATH/$name.pid"
+  local pid=""
+
+  if [[ -f "$pid_file" ]]; then
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "$pid"
+      return
+    fi
+  fi
+
+  if command -v ss >/dev/null 2>&1; then
+    pid="$(ss -ltnp "( sport = :$port )" 2>/dev/null | awk -F'pid=' 'NR>1 && $2{split($2,a,","); print a[1]; exit}')"
+    if [[ -n "$pid" ]]; then
+      echo "$pid"
+      return
+    fi
+  fi
+
+  pgrep -f "uvicorn .* --port $port" | head -n 1 || true
+}
+
+show_start_failure_hint() {
+  local name="$1"
+  local stderr="$LOG_PATH/$name.err.log"
+  echo "Started $name, but the service PID could not be resolved"
+  if [[ -f "$stderr" ]]; then
+    echo "Recent errors from $stderr:"
+    tail -n 20 "$stderr" || true
+  fi
 }
 
 start_service_background() {
@@ -112,19 +141,26 @@ start_service_background() {
     echo $! > "$pid_file"
   )
 
-  sleep 1
-  existing_pid="$(get_service_pid "$name")"
+  for _ in {1..16}; do
+    existing_pid="$(get_service_pid "$name")"
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.5
+  done
+
   if [[ -n "$existing_pid" ]]; then
     echo "$existing_pid" > "$pid_file"
     echo "Started $name on port $port with PID $existing_pid"
   else
-    echo "Started $name, but the service PID could not be resolved"
+    show_start_failure_hint "$name"
   fi
 }
 
 stop_service_background() {
   local name="$1"
   local pid_file="$RUN_PATH/$name.pid"
+  local port="${SERVICE_PORTS[$name]}"
   local pid=""
 
   if [[ -f "$pid_file" ]]; then
@@ -143,7 +179,18 @@ stop_service_background() {
     fi
     echo "Stopped $name (PID $pid)"
   else
-    echo "$name is not running"
+    # Fallback: kill any uvicorn process listening on this service port.
+    local matched
+    matched="$(pgrep -f "uvicorn .* --port $port" || true)"
+    if [[ -n "$matched" ]]; then
+      while IFS= read -r orphan_pid; do
+        [[ -z "$orphan_pid" ]] && continue
+        kill "$orphan_pid" 2>/dev/null || true
+      done <<< "$matched"
+      echo "Stopped $name by port match on $port"
+    else
+      echo "$name is not running"
+    fi
   fi
 
   rm -f "$pid_file"
