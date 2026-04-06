@@ -14,12 +14,19 @@ class AntivirusSignature:
     service_names: frozenset[str]
 
 
+@dataclass(frozen=True, slots=True)
+class AntivirusDetection:
+    installed_families: set[str]
+    active_families: set[str]
+    family_states: dict[str, set[str]]
+
+
 ANTIVIRUS_SIGNATURES: tuple[AntivirusSignature, ...] = (
     AntivirusSignature(
         family="microsoft_defender",
         product_tokens=frozenset({"windows defender", "microsoft defender", "defender"}),
         process_names=frozenset({"msmpeng.exe", "nisserv.exe"}),
-        service_names=frozenset({"windefend", "sense", "wscsvc"}),
+        service_names=frozenset({"windefend", "sense"}),
     ),
     AntivirusSignature(
         family="crowdstrike",
@@ -154,6 +161,17 @@ def _match_families_by_product_tokens(identifiers: set[str]) -> set[str]:
     return detected
 
 
+def _families_for_identifier(identifier: str) -> set[str]:
+    detected: set[str] = set()
+    candidate = identifier.strip().lower()
+    if not candidate:
+        return detected
+    for signature in ANTIVIRUS_SIGNATURES:
+        if any(token in candidate for token in signature.product_tokens):
+            detected.add(signature.family)
+    return detected
+
+
 def _running_process_names(telemetry: EndpointTelemetry) -> set[str]:
     return _lowered([process.name for process in telemetry.processes if process.name])
 
@@ -179,21 +197,93 @@ def _product_identifiers(telemetry: EndpointTelemetry) -> set[str]:
     )
 
 
+def _parse_product_state_int(value: str | None) -> int | None:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return None
+    try:
+        if raw.startswith("0x"):
+            return int(raw, 16)
+        if any(char in "abcdef" for char in raw):
+            return int(raw, 16)
+        return int(raw, 10)
+    except ValueError:
+        return None
+
+
+def parse_antivirus_product_state(value: str | None) -> str:
+    state_int = _parse_product_state_int(value)
+    if state_int is None:
+        return "unknown"
+
+    # SecurityCenter2 AntivirusProduct.productState commonly encodes mode in the second byte.
+    # We keep this conservative: explicit "off" is honored, otherwise a set on-bit can still mark active.
+    mode = (state_int >> 8) & 0xFF
+    mapping = {
+        0x00: "off",
+        0x01: "expired",
+        0x10: "on",
+        0x11: "on_snoozed",
+    }
+    if mode in mapping:
+        return mapping[mode]
+
+    if state_int & 0x1000:
+        return "on"
+    return "unknown"
+
+
+def detect_antivirus_runtime(telemetry: EndpointTelemetry) -> AntivirusDetection:
+    runtime_families = set()
+    runtime_families.update(
+        _match_families_by_exact_markers(_running_process_names(telemetry), PROCESS_FAMILY_INDEX)
+    )
+    runtime_families.update(
+        _match_families_by_exact_markers(_service_names(telemetry, running_only=True), SERVICE_FAMILY_INDEX)
+    )
+
+    installed_families = set(runtime_families)
+    installed_families.update(
+        _match_families_by_exact_markers(_service_names(telemetry, running_only=False), SERVICE_FAMILY_INDEX)
+    )
+    installed_families.update(_match_families_by_product_tokens(_product_identifiers(telemetry)))
+
+    family_states: dict[str, set[str]] = {}
+    for product in telemetry.antivirus_products:
+        identifier = (product.identifier or product.name or "").strip().lower()
+        if not identifier:
+            continue
+        state = parse_antivirus_product_state(product.state)
+        families = _families_for_identifier(identifier)
+        for family in families:
+            family_states.setdefault(family, set()).add(state)
+            installed_families.add(family)
+
+    active_families = set(runtime_families)
+    for family, states in family_states.items():
+        if states.intersection({"on", "on_snoozed", "expired"}):
+            active_families.add(family)
+            continue
+        if "off" in states:
+            active_families.discard(family)
+
+    normalized_installed = {normalize_antivirus_family_value(item) for item in installed_families}
+    normalized_active = {normalize_antivirus_family_value(item) for item in active_families}
+    normalized_states = {
+        normalize_antivirus_family_value(family): set(states)
+        for family, states in family_states.items()
+    }
+
+    return AntivirusDetection(
+        installed_families=normalized_installed,
+        active_families=normalized_active,
+        family_states=normalized_states,
+    )
+
+
 def detect_antivirus_families(telemetry: EndpointTelemetry) -> set[str]:
-    process_names = _running_process_names(telemetry)
-    all_service_names = _service_names(telemetry, running_only=False)
-    identifiers = _product_identifiers(telemetry)
-    detected_families = set()
-    detected_families.update(_match_families_by_exact_markers(process_names, PROCESS_FAMILY_INDEX))
-    detected_families.update(_match_families_by_exact_markers(all_service_names, SERVICE_FAMILY_INDEX))
-    detected_families.update(_match_families_by_product_tokens(identifiers))
-    return {normalize_antivirus_family_value(family) for family in detected_families}
+    return detect_antivirus_runtime(telemetry).installed_families
 
 
 def detect_active_antivirus_families(telemetry: EndpointTelemetry) -> set[str]:
-    running_processes = _running_process_names(telemetry)
-    running_services = _service_names(telemetry, running_only=True)
-    detected_families = set()
-    detected_families.update(_match_families_by_exact_markers(running_processes, PROCESS_FAMILY_INDEX))
-    detected_families.update(_match_families_by_exact_markers(running_services, SERVICE_FAMILY_INDEX))
-    return {normalize_antivirus_family_value(family) for family in detected_families}
+    return detect_antivirus_runtime(telemetry).active_families

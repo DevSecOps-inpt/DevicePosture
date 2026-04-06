@@ -4,8 +4,7 @@ from posture_shared.models.policy import PolicyCondition
 from posture_shared.models.telemetry import EndpointTelemetry
 
 from app.evaluators.antivirus_families import (
-    detect_active_antivirus_families,
-    detect_antivirus_families,
+    detect_antivirus_runtime,
     normalize_antivirus_family_value,
 )
 from app.evaluators.operators import evaluate_membership, normalize_list, normalize_operator
@@ -30,8 +29,9 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
                 )
             ]
 
-        installed_families = detect_antivirus_families(telemetry)
-        active_families = detect_active_antivirus_families(telemetry)
+        detection = detect_antivirus_runtime(telemetry)
+        installed_families = detection.installed_families
+        active_families = detection.active_families
         detected_products = {
             (product.identifier or product.name).strip().lower()
             for product in telemetry.antivirus_products
@@ -48,6 +48,10 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
                 actual_statuses.update({"stopped", "disabled", "inactive", "not_running"})
             else:
                 actual_statuses.add("not_installed")
+
+            for states in detection.family_states.values():
+                actual_statuses.update(states)
+
             if evaluate_membership(actual_values=actual_statuses, expected_values=expected, operator=operator):
                 return []
             return [
@@ -55,7 +59,8 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
                     check_type=self.condition_type,
                     message=(
                         f"Antivirus status condition failed. Detected statuses: {sorted(actual_statuses)}. "
-                        f"Active families: {sorted(active_families)}. Installed families: {sorted(installed_families)}"
+                        f"Active families: {sorted(active_families)}. Installed families: {sorted(installed_families)}. "
+                        f"Family states: {detection.family_states}"
                     ),
                 )
             ]
