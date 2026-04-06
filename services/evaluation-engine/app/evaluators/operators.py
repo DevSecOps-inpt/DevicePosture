@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -51,11 +52,26 @@ def evaluate_membership(
 ) -> bool:
     if not expected_values:
         return True
+    actual_items = {item for item in actual_values if item}
+    expected_items = {item for item in expected_values if item}
+    if not expected_items:
+        return True
+
+    def _matches(actual: str, expected: str) -> bool:
+        if "*" not in expected:
+            return actual == expected
+        # Support shell-style "*" wildcard inside string values.
+        wildcard_pattern = "^" + re.escape(expected).replace(r"\*", ".*") + "$"
+        return re.match(wildcard_pattern, actual) is not None
+
+    def _any_match(expected: str) -> bool:
+        return any(_matches(actual, expected) for actual in actual_items)
+
     if operator == "does_not_exist_in":
-        return len(actual_values.intersection(expected_values)) == 0
+        return not any(_any_match(expected) for expected in expected_items)
     if operator == "contains_all":
-        return expected_values.issubset(actual_values)
-    return len(actual_values.intersection(expected_values)) > 0
+        return all(_any_match(expected) for expected in expected_items)
+    return any(_any_match(expected) for expected in expected_items)
 
 
 def evaluate_numeric(

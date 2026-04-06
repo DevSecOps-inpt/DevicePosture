@@ -1,3 +1,5 @@
+import re
+
 from posture_shared.interfaces.evaluators import EvaluatorPlugin
 from posture_shared.models.evaluation import EvaluationReason
 from posture_shared.models.policy import PolicyCondition
@@ -30,7 +32,14 @@ class RequiredKBsEvaluator(EvaluatorPlugin):
                 )
             ]
 
-        missing = sorted(required - present)
+        missing = []
+        for expected in sorted(required):
+            if "*" in expected:
+                pattern = "^" + re.escape(expected).replace(r"\*", ".*") + "$"
+                if not any(re.match(pattern, actual) for actual in present):
+                    missing.append(expected)
+            elif expected not in present:
+                missing.append(expected)
         return [
             EvaluationReason(
                 check_type=self.condition_type,

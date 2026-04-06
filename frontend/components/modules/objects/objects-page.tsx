@@ -250,10 +250,6 @@ export function ObjectsPage() {
       pushToast({ tone: "error", title: "Group name is required" });
       return;
     }
-    if (groupDraft.memberObjectIds.length === 0) {
-      pushToast({ tone: "error", title: "Select at least one object for this group" });
-      return;
-    }
 
     try {
       let currentGroupName = groupDraft.name.trim();
@@ -449,7 +445,7 @@ export function ObjectsPage() {
               <Plus className="mr-2 h-4 w-4" />
               New IP object
             </Button>
-            <Button onClick={() => { resetGroupDraft(); setGroupModalOpen(true); }} disabled={ipObjects.length === 0}>
+            <Button onClick={() => { resetGroupDraft(); setGroupModalOpen(true); }}>
               <Plus className="mr-2 h-4 w-4" />
               New IP group
             </Button>
@@ -795,7 +791,7 @@ export function ObjectsPage() {
             <Button variant="ghost" onClick={() => { setGroupModalOpen(false); resetGroupDraft(); }}>
               Cancel
             </Button>
-            <Button onClick={() => void saveIpGroup()} disabled={!groupDraft.name.trim() || groupDraft.memberObjectIds.length === 0}>
+            <Button onClick={() => void saveIpGroup()} disabled={!groupDraft.name.trim()}>
               {editingIpGroupId ? "Update group" : "Create group"}
             </Button>
           </>
@@ -823,7 +819,7 @@ export function ObjectsPage() {
             <span className="text-sm text-slate-300">Member objects</span>
             {ipObjects.length === 0 ? (
               <p className="rounded-xl border border-border bg-slate-900 px-3 py-3 text-sm text-slate-400">
-                No IP objects available.
+                No IP objects available yet. You can still create an empty group now and add objects later.
               </p>
             ) : (
               <div className="max-h-56 space-y-2 overflow-auto rounded-xl border border-border bg-slate-900 p-3">
