@@ -108,6 +108,37 @@ def ensure_performance_indexes() -> None:
 
 
 ensure_performance_indexes()
+
+
+def enforce_latest_only_telemetry_records() -> None:
+    with engine.begin() as connection:
+        # Keep only the latest telemetry row per endpoint_ref.
+        connection.execute(
+            text(
+                """
+                DELETE FROM telemetry_records
+                WHERE id NOT IN (
+                    SELECT keeper.id
+                    FROM telemetry_records AS keeper
+                    WHERE keeper.id = (
+                        SELECT candidate.id
+                        FROM telemetry_records AS candidate
+                        WHERE candidate.endpoint_ref = keeper.endpoint_ref
+                        ORDER BY candidate.collected_at DESC, candidate.id DESC
+                        LIMIT 1
+                    )
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_telemetry_records_endpoint_ref ON telemetry_records(endpoint_ref)"
+            )
+        )
+
+
+enforce_latest_only_telemetry_records()
 logger.info("telemetry-api database initialized")
 
 app = FastAPI(title="telemetry-api", version="0.1.0")
@@ -257,19 +288,32 @@ def submit_telemetry(
         extras["connection_source_ip"] = source_ip
     telemetry_payload["extras"] = extras
 
-    record = TelemetryRecord(
-        endpoint_ref=endpoint.id,
-        collected_at=telemetry.collected_at,
-        source_ip=source_ip,
-        collector_type=telemetry.collector_type,
-        telemetry_type="endpoint_posture",
-        core_ipv4=telemetry.network.ipv4,
-        core_os_name=telemetry.os.name,
-        core_os_version=telemetry.os.version,
-        core_os_build=telemetry.os.build,
-        raw_payload=telemetry_payload,
-    )
-    db.add(record)
+    record = db.scalar(select(TelemetryRecord).where(TelemetryRecord.endpoint_ref == endpoint.id))
+    if record is None:
+        record = TelemetryRecord(
+            endpoint_ref=endpoint.id,
+            collected_at=telemetry.collected_at,
+            source_ip=source_ip,
+            collector_type=telemetry.collector_type,
+            telemetry_type="endpoint_posture",
+            core_ipv4=telemetry.network.ipv4,
+            core_os_name=telemetry.os.name,
+            core_os_version=telemetry.os.version,
+            core_os_build=telemetry.os.build,
+            raw_payload=telemetry_payload,
+        )
+        db.add(record)
+    else:
+        record.collected_at = telemetry.collected_at
+        record.source_ip = source_ip
+        record.collector_type = telemetry.collector_type
+        record.telemetry_type = "endpoint_posture"
+        record.core_ipv4 = telemetry.network.ipv4
+        record.core_os_name = telemetry.os.name
+        record.core_os_version = telemetry.os.version
+        record.core_os_build = telemetry.os.build
+        record.raw_payload = telemetry_payload
+        record.created_at = datetime.now(timezone.utc)
     db.flush()
     lifecycle_event_type = EVENT_TELEMETRY_RECEIVED
     common_event_details = {
@@ -344,16 +388,11 @@ def get_latest_telemetry(
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> TelemetryRecordResponse:
-    reconcile_inactive_transitions(db=db, logger=logger)
     endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == endpoint_id))
     if endpoint is None:
         raise HTTPException(status_code=404, detail="Endpoint not found")
 
-    record = db.scalar(
-        select(TelemetryRecord)
-        .where(TelemetryRecord.endpoint_ref == endpoint.id)
-        .order_by(desc(TelemetryRecord.collected_at))
-    )
+    record = db.scalar(select(TelemetryRecord).where(TelemetryRecord.endpoint_ref == endpoint.id))
     if record is None:
         raise HTTPException(status_code=404, detail="Telemetry not found")
 
@@ -395,15 +434,8 @@ def get_latest_telemetry_batch(
     if not endpoint_by_ref:
         return []
 
-    records = db.scalars(
-        select(TelemetryRecord)
-        .where(TelemetryRecord.endpoint_ref.in_(list(endpoint_by_ref.keys())))
-        .order_by(TelemetryRecord.endpoint_ref, desc(TelemetryRecord.collected_at), desc(TelemetryRecord.id))
-    ).all()
-    latest_by_endpoint_ref: dict[int, TelemetryRecord] = {}
-    for record in records:
-        if record.endpoint_ref not in latest_by_endpoint_ref:
-            latest_by_endpoint_ref[record.endpoint_ref] = record
+    records = db.scalars(select(TelemetryRecord).where(TelemetryRecord.endpoint_ref.in_(list(endpoint_by_ref.keys())))).all()
+    latest_by_endpoint_ref = {record.endpoint_ref: record for record in records}
 
     response_items: list[TelemetryRecordResponse] = []
     endpoint_order = {endpoint_id_value: index for index, endpoint_id_value in enumerate(endpoint_ids)}
@@ -441,17 +473,11 @@ def get_telemetry_history(
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[TelemetryRecordResponse]:
-    reconcile_inactive_transitions(db=db, logger=logger)
     endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == endpoint_id))
     if endpoint is None:
         raise HTTPException(status_code=404, detail="Endpoint not found")
 
-    records = db.scalars(
-        select(TelemetryRecord)
-        .where(TelemetryRecord.endpoint_ref == endpoint.id)
-        .order_by(desc(TelemetryRecord.collected_at))
-        .limit(limit)
-    ).all()
+    records = db.scalars(select(TelemetryRecord).where(TelemetryRecord.endpoint_ref == endpoint.id).limit(limit)).all()
     return [build_record_response(record, endpoint) for record in records]
 
 

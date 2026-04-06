@@ -38,7 +38,7 @@ class TelemetryRecord(Base):
     __tablename__ = "telemetry_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    endpoint_ref: Mapped[int] = mapped_column(ForeignKey("endpoints.id"), index=True)
+    endpoint_ref: Mapped[int] = mapped_column(ForeignKey("endpoints.id"), index=True, unique=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     collector_type: Mapped[str] = mapped_column(String(64), default="unknown")

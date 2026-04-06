@@ -12,6 +12,8 @@ from posture_shared.models.evaluation import ComplianceDecision
 from posture_shared.models.policy import PosturePolicy
 from posture_shared.models.telemetry import EndpointTelemetry
 
+_session = requests.Session()
+
 
 def _auth_headers() -> dict[str, str]:
     if not INTER_SERVICE_API_KEY:
@@ -20,7 +22,7 @@ def _auth_headers() -> dict[str, str]:
 
 
 def fetch_latest_telemetry(endpoint_id: str) -> EndpointTelemetry:
-    response = requests.get(
+    response = _session.get(
         f"{TELEMETRY_API_URL}/endpoints/{endpoint_id}/latest",
         headers=_auth_headers(),
         timeout=HTTP_TIMEOUT_SECONDS,
@@ -38,7 +40,7 @@ def fetch_latest_telemetry(endpoint_id: str) -> EndpointTelemetry:
 
 
 def fetch_policy(endpoint_id: str) -> PosturePolicy | None:
-    response = requests.get(
+    response = _session.get(
         f"{POLICY_SERVICE_URL}/policy-match/{endpoint_id}",
         headers=_auth_headers(),
         timeout=HTTP_TIMEOUT_SECONDS,
@@ -53,7 +55,7 @@ def fetch_policy(endpoint_id: str) -> PosturePolicy | None:
 def forward_decision(decision: ComplianceDecision) -> dict | None:
     if not FORWARD_DECISIONS:
         return None
-    response = requests.post(
+    response = _session.post(
         f"{ENFORCEMENT_SERVICE_URL}/decisions",
         headers=_auth_headers(),
         json=decision.model_dump(mode="json"),

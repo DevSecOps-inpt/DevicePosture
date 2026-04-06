@@ -366,47 +366,44 @@ def resolve_assigned_policy(
     scope: str,
     lifecycle_event_type: str | None = None,
 ) -> Policy | None:
-    endpoint_assignments = db.scalars(
-        select(PolicyAssignmentModel)
+    def _resolve_from_assignment_query(base_query):
+        query = base_query.where(
+            Policy.is_active.is_(True),
+            Policy.policy_scope == scope,
+        )
+        if scope == "lifecycle":
+            query = query.where(Policy.lifecycle_event_type == lifecycle_event_type)
+        query = query.order_by(PolicyAssignmentModel.id.desc()).limit(1)
+        return db.scalar(query)
+
+    endpoint_policy = _resolve_from_assignment_query(
+        select(Policy)
+        .join(PolicyAssignmentModel, PolicyAssignmentModel.policy_id == Policy.id)
         .where(
             PolicyAssignmentModel.assignment_type == "endpoint",
             PolicyAssignmentModel.assignment_value == endpoint_id,
         )
-        .order_by(PolicyAssignmentModel.id.desc())
-    ).all()
-    for assignment in endpoint_assignments:
-        policy = db.get(Policy, assignment.policy_id)
-        if policy and policy.is_active and policy.policy_scope == scope:
-            if scope != "lifecycle" or policy.lifecycle_event_type == lifecycle_event_type:
-                return policy
+    )
+    if endpoint_policy is not None:
+        return endpoint_policy
 
     if groups:
-        group_assignments = db.scalars(
-            select(PolicyAssignmentModel)
+        group_policy = _resolve_from_assignment_query(
+            select(Policy)
+            .join(PolicyAssignmentModel, PolicyAssignmentModel.policy_id == Policy.id)
             .where(
                 PolicyAssignmentModel.assignment_type == "group",
                 PolicyAssignmentModel.assignment_value.in_(groups),
             )
-            .order_by(PolicyAssignmentModel.id.desc())
-        ).all()
-        for assignment in group_assignments:
-            policy = db.get(Policy, assignment.policy_id)
-            if policy and policy.is_active and policy.policy_scope == scope:
-                if scope != "lifecycle" or policy.lifecycle_event_type == lifecycle_event_type:
-                    return policy
+        )
+        if group_policy is not None:
+            return group_policy
 
-    default_assignments = db.scalars(
-        select(PolicyAssignmentModel)
+    return _resolve_from_assignment_query(
+        select(Policy)
+        .join(PolicyAssignmentModel, PolicyAssignmentModel.policy_id == Policy.id)
         .where(PolicyAssignmentModel.assignment_type == "default")
-        .order_by(PolicyAssignmentModel.id.desc())
-    ).all()
-    for assignment in default_assignments:
-        policy = db.get(Policy, assignment.policy_id)
-        if policy and policy.is_active and policy.policy_scope == scope:
-            if scope != "lifecycle" or policy.lifecycle_event_type == lifecycle_event_type:
-                return policy
-
-    return None
+    )
 
 
 def hash_password(password: str, *, iterations: int = 120_000) -> str:

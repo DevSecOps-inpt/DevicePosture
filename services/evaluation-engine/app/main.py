@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -103,8 +104,11 @@ def evaluate_endpoint(
     source_ip = request.client.host if request.client else "unknown"
     _apply_evaluation_rate_limit(f"evaluate:{source_ip}")
     try:
-        telemetry = fetch_latest_telemetry(endpoint_id)
-        policy = fetch_policy(endpoint_id)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            telemetry_future = pool.submit(fetch_latest_telemetry, endpoint_id)
+            policy_future = pool.submit(fetch_policy, endpoint_id)
+            telemetry = telemetry_future.result()
+            policy = policy_future.result()
     except RequestException as exc:
         logger.warning("upstream call failed for endpoint_id=%s error=%s", endpoint_id, exc)
         raise HTTPException(

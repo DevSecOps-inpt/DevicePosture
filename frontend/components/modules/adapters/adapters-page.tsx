@@ -23,7 +23,6 @@ type ProfileDraft = {
   token: string;
   timeoutSeconds: string;
   retries: string;
-  targetGroup: string;
   scope: string;
 };
 
@@ -49,7 +48,6 @@ function buildDefaultDraft(profileName = "adapter-profile-1"): ProfileDraft {
     token: "",
     timeoutSeconds: "10",
     retries: "3",
-    targetGroup: "NON_COMPLIANT_ENDPOINTS",
     scope: defaultScopeForAdapter("fortigate")
   };
 }
@@ -68,9 +66,6 @@ function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
     token: "",
     timeoutSeconds: String((settings.timeout_seconds as number | string) ?? "10"),
     retries: String((settings.retries as number | string) ?? "3"),
-    targetGroup: String(
-      (settings.target_group as string) ?? (settings.quarantine_group as string) ?? "NON_COMPLIANT_ENDPOINTS"
-    ),
     scope: String((settings.scope as string) ?? (settings.vdom as string) ?? defaultScopeForAdapter(adapter))
   };
 }
@@ -81,13 +76,13 @@ function draftToSettings(draft: ProfileDraft): Record<string, unknown> {
     token: draft.token,
     timeout_seconds: Number(draft.timeoutSeconds) || 10,
     retries: Number(draft.retries) || 3,
-    target_group: draft.targetGroup.trim(),
-    scope: draft.scope.trim()
+    scope: draft.scope.trim(),
+    target_group: null
   };
 
   if (draft.adapter === "fortigate") {
     settings.vdom = draft.scope.trim() || "root";
-    settings.quarantine_group = draft.targetGroup.trim();
+    settings.quarantine_group = null;
   }
   return settings;
 }
@@ -447,15 +442,7 @@ export function AdaptersPage() {
             </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-4">
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm text-slate-300">Target object group</span>
-              <input
-                value={draft.targetGroup}
-                onChange={(event) => setDraft((current) => ({ ...current, targetGroup: event.target.value }))}
-                className={inputClassName}
-              />
-            </label>
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
               <span className="text-sm text-slate-300">Timeout (s)</span>
               <input
