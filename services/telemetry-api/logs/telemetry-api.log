@@ -4787,3 +4787,25 @@
 2026-04-03 12:30:54,886 INFO [telemetry-api] telemetry-api database initialized
 2026-04-03 12:30:55,097 INFO [telemetry-api] request_id=a87573c3-3228-4ff4-b678-9c6950a830d8 method=GET path=/healthz status=200 duration_ms=4.80
 2026-04-03 12:31:13,048 INFO [telemetry-api] request_id=01cbb20b-2cb8-4940-aff5-57cae5563a64 method=GET path=/healthz status=200 duration_ms=2.11
+2026-04-06 03:47:50,106 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-06 03:47:50,521 INFO [telemetry-api] telemetry-api database initialized
+2026-04-06 03:48:13,697 INFO [telemetry-api] request_id=5900ee3d-a35c-43a7-8457-dd7a1f7b7fc5 method=GET path=/healthz status=200 duration_ms=4.59
+2026-04-06 03:50:02,389 INFO [telemetry-api] lifecycle event endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.inactive_to_active previous=inactive current=active policy_id=None execution_state=skipped
+2026-04-06 03:50:02,513 INFO [telemetry-api] lifecycle event endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.telemetry_received previous=inactive current=active policy_id=None execution_state=skipped
+2026-04-06 03:50:02,592 INFO [telemetry-api] stored telemetry endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c hostname=ESSAGHIR source_ip=127.0.0.1 record_id=1712 interval=2 grace_multiplier=3 activity_timeout=6 created_endpoint=False lifecycle_event=endpoint.telemetry_received
+2026-04-06 03:50:02,596 INFO [telemetry-api] request_id=b78b10c1-0e12-4f12-9271-3812c4d46b27 method=POST path=/telemetry status=201 duration_ms=324.42
+2026-04-06 03:51:14,359 INFO [telemetry-api] lifecycle event endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.telemetry_received previous=active current=active policy_id=5 execution_state=skipped
+2026-04-06 03:51:14,366 INFO [telemetry-api] stored telemetry endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c hostname=ESSAGHIR source_ip=127.0.0.1 record_id=1712 interval=2 grace_multiplier=3 activity_timeout=6 created_endpoint=False lifecycle_event=endpoint.telemetry_received
+2026-04-06 03:51:14,368 INFO [telemetry-api] request_id=3e196b23-54c9-4d2b-a326-4d501a902977 method=POST path=/telemetry status=201 duration_ms=97.86
+2026-04-06 03:52:10,069 INFO [telemetry-api] lifecycle event endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.telemetry_received previous=active current=active policy_id=5 execution_state=skipped
+2026-04-06 03:52:10,074 INFO [telemetry-api] stored telemetry endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c hostname=ESSAGHIR source_ip=127.0.0.1 record_id=1712 interval=2 grace_multiplier=3 activity_timeout=6 created_endpoint=False lifecycle_event=endpoint.telemetry_received
+2026-04-06 03:52:10,076 INFO [telemetry-api] request_id=222b70fc-2795-49d0-8fad-634b6dbec6cc method=POST path=/telemetry status=201 duration_ms=77.76
+2026-04-06 03:52:24,975 INFO [telemetry-api] telemetry-api logging initialized at C:\Users\essag\Documents\Playground\services\telemetry-api\logs\telemetry-api.log
+2026-04-06 03:52:24,991 INFO [telemetry-api] telemetry-api database initialized
+2026-04-06 03:52:53,504 INFO [telemetry-api] lifecycle event endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.telemetry_received previous=active current=active policy_id=5 execution_state=skipped
+2026-04-06 03:52:53,505 WARNING [telemetry-api] lifecycle non-compliant endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.telemetry_received policy_id=5 reasons=[{'check_type': 'os_version', 'message': "OS name 'Microsoft Windows 11 Professionnel' failed operator 'exists in' against ['*windows 10*']"}]
+2026-04-06 03:52:53,512 INFO [telemetry-api] stored telemetry endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c hostname=ESSAGHIR source_ip=127.0.0.1 record_id=1712 interval=2 grace_multiplier=3 activity_timeout=6 created_endpoint=False lifecycle_event=endpoint.telemetry_received
+2026-04-06 03:52:53,513 INFO [telemetry-api] request_id=a72b8254-0116-4c05-bd3e-5d65cd796aab method=POST path=/telemetry status=201 duration_ms=106.94
+2026-04-06 03:53:11,855 INFO [telemetry-api] lifecycle event endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c event_type=endpoint.telemetry_received previous=active current=active policy_id=5 execution_state=skipped
+2026-04-06 03:53:11,859 INFO [telemetry-api] stored telemetry endpoint_id=1a729af9-d048-4900-b9cd-011ce789d46c hostname=ESSAGHIR source_ip=127.0.0.1 record_id=1712 interval=2 grace_multiplier=3 activity_timeout=6 created_endpoint=False lifecycle_event=endpoint.telemetry_received
+2026-04-06 03:53:11,860 INFO [telemetry-api] request_id=e97bf2bf-380e-41d2-886e-d93e9812f674 method=POST path=/telemetry status=201 duration_ms=46.95

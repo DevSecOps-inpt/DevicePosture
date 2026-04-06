@@ -288,10 +288,22 @@ def create_lifecycle_event(
 
     event_details = dict(details or {})
     if decision_payload:
+        decision_reasons_raw = decision_payload.get("reasons")
+        decision_reasons: list[dict] = []
+        if isinstance(decision_reasons_raw, list):
+            for item in decision_reasons_raw:
+                if isinstance(item, dict):
+                    decision_reasons.append(
+                        {
+                            "check_type": item.get("check_type"),
+                            "message": item.get("message"),
+                        }
+                    )
         event_details["decision"] = {
             "compliant": bool(decision_payload.get("compliant")),
             "recommended_action": decision_payload.get("recommended_action"),
-            "reason_count": len(decision_payload.get("reasons", [])) if isinstance(decision_payload.get("reasons"), list) else 0,
+            "reason_count": len(decision_reasons),
+            "reasons": decision_reasons,
         }
     if execution_result:
         event_details["execution"] = execution_result
@@ -317,6 +329,14 @@ def create_lifecycle_event(
         policy_id,
         execution_state,
     )
+    if decision_payload and not bool(decision_payload.get("compliant")):
+        logger.warning(
+            "lifecycle non-compliant endpoint_id=%s event_type=%s policy_id=%s reasons=%s",
+            endpoint.endpoint_id,
+            event_type,
+            policy_id,
+            decision_payload.get("reasons"),
+        )
     return event
 
 
