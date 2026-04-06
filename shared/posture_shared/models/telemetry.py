@@ -35,6 +35,10 @@ class AntivirusProduct(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     state: str | None = Field(default=None, max_length=64)
     identifier: str | None = Field(default=None, max_length=128)
+    real_time_protection_enabled: bool | None = None
+    antivirus_enabled: bool | None = None
+    am_service_enabled: bool | None = None
+    tamper_protection_source: str | None = Field(default=None, max_length=64)
 
 
 class AgentRuntimeConfig(BaseModel):

@@ -223,7 +223,7 @@ def parse_antivirus_product_state(value: str | None) -> str:
         0x00: "off",
         0x01: "expired",
         0x10: "on",
-        0x11: "on_snoozed",
+        0x11: "snoozed",
     }
     if mode in mapping:
         return mapping[mode]
@@ -231,6 +231,18 @@ def parse_antivirus_product_state(value: str | None) -> str:
     if state_int & 0x1000:
         return "on"
     return "unknown"
+
+
+def _state_from_runtime_flags(product) -> str | None:
+    rt = getattr(product, "real_time_protection_enabled", None)
+    av_enabled = getattr(product, "antivirus_enabled", None)
+    if rt is False:
+        return "off"
+    if rt is True:
+        return "on"
+    if av_enabled is False:
+        return "off"
+    return None
 
 
 def detect_antivirus_runtime(telemetry: EndpointTelemetry) -> AntivirusDetection:
@@ -253,7 +265,8 @@ def detect_antivirus_runtime(telemetry: EndpointTelemetry) -> AntivirusDetection
         identifier = (product.identifier or product.name or "").strip().lower()
         if not identifier:
             continue
-        state = parse_antivirus_product_state(product.state)
+        explicit_state = _state_from_runtime_flags(product)
+        state = explicit_state or parse_antivirus_product_state(product.state)
         families = _families_for_identifier(identifier)
         for family in families:
             family_states.setdefault(family, set()).add(state)
@@ -261,10 +274,13 @@ def detect_antivirus_runtime(telemetry: EndpointTelemetry) -> AntivirusDetection
 
     active_families = set(runtime_families)
     for family, states in family_states.items():
-        if states.intersection({"on", "on_snoozed", "expired"}):
+        if "off" in states:
+            active_families.discard(family)
+            continue
+        if states.intersection({"on"}):
             active_families.add(family)
             continue
-        if "off" in states:
+        if states.intersection({"snoozed", "expired"}):
             active_families.discard(family)
 
     normalized_installed = {normalize_antivirus_family_value(item) for item in installed_families}
