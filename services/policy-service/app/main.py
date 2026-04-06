@@ -366,17 +366,43 @@ def resolve_assigned_policy(
     scope: str,
     lifecycle_event_type: str | None = None,
 ) -> Policy | None:
-    def _resolve_from_assignment_query(base_query):
+    policies = resolve_assigned_policies(
+        db=db,
+        endpoint_id=endpoint_id,
+        groups=groups,
+        scope=scope,
+        lifecycle_event_type=lifecycle_event_type,
+    )
+    return policies[0] if policies else None
+
+
+def resolve_assigned_policies(
+    *,
+    db: Session,
+    endpoint_id: str,
+    groups: list[str],
+    scope: str,
+    lifecycle_event_type: str | None = None,
+) -> list[Policy]:
+    def _resolve_from_assignment_query(base_query) -> list[Policy]:
         query = base_query.where(
             Policy.is_active.is_(True),
             Policy.policy_scope == scope,
         )
         if scope == "lifecycle":
             query = query.where(Policy.lifecycle_event_type == lifecycle_event_type)
-        query = query.order_by(PolicyAssignmentModel.id.desc()).limit(1)
-        return db.scalar(query)
+        query = query.order_by(PolicyAssignmentModel.id.desc(), Policy.id.desc())
+        rows = db.scalars(query).all()
+        deduped: list[Policy] = []
+        seen_policy_ids: set[int] = set()
+        for policy in rows:
+            if policy.id in seen_policy_ids:
+                continue
+            seen_policy_ids.add(policy.id)
+            deduped.append(policy)
+        return deduped
 
-    endpoint_policy = _resolve_from_assignment_query(
+    endpoint_policies = _resolve_from_assignment_query(
         select(Policy)
         .join(PolicyAssignmentModel, PolicyAssignmentModel.policy_id == Policy.id)
         .where(
@@ -384,11 +410,11 @@ def resolve_assigned_policy(
             PolicyAssignmentModel.assignment_value == endpoint_id,
         )
     )
-    if endpoint_policy is not None:
-        return endpoint_policy
+    if endpoint_policies:
+        return endpoint_policies
 
     if groups:
-        group_policy = _resolve_from_assignment_query(
+        group_policies = _resolve_from_assignment_query(
             select(Policy)
             .join(PolicyAssignmentModel, PolicyAssignmentModel.policy_id == Policy.id)
             .where(
@@ -396,8 +422,8 @@ def resolve_assigned_policy(
                 PolicyAssignmentModel.assignment_value.in_(groups),
             )
         )
-        if group_policy is not None:
-            return group_policy
+        if group_policies:
+            return group_policies
 
     return _resolve_from_assignment_query(
         select(Policy)
@@ -980,6 +1006,22 @@ def resolve_policy(
     return None
 
 
+@app.get("/policy-matches/{endpoint_id}", response_model=list[PolicyResponse])
+def resolve_policies(
+    endpoint_id: str,
+    groups: list[str] = Query(default=[]),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[PolicyResponse]:
+    policies = resolve_assigned_policies(
+        db=db,
+        endpoint_id=endpoint_id,
+        groups=groups,
+        scope="posture",
+    )
+    return [to_policy_response(policy, db=db, resolve_groups=True) for policy in policies]
+
+
 @app.get("/policy-match-batch", response_model=dict[str, PolicyResponse | None])
 def resolve_policy_batch(
     endpoint_id: list[str] = Query(default=[]),
@@ -1021,6 +1063,27 @@ def resolve_lifecycle_policy(
     if policy is not None:
         return to_policy_response(policy, db=db, resolve_groups=True)
     return None
+
+
+@app.get("/lifecycle-policy-matches/{event_type}/{endpoint_id}", response_model=list[PolicyResponse])
+def resolve_lifecycle_policies(
+    event_type: str,
+    endpoint_id: str,
+    groups: list[str] = Query(default=[]),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[PolicyResponse]:
+    if event_type not in {"telemetry_received", "active_to_inactive"}:
+        raise HTTPException(status_code=400, detail="Unsupported lifecycle event type")
+
+    policies = resolve_assigned_policies(
+        db=db,
+        endpoint_id=endpoint_id,
+        groups=groups,
+        scope="lifecycle",
+        lifecycle_event_type=event_type,
+    )
+    return [to_policy_response(policy, db=db, resolve_groups=True) for policy in policies]
 
 
 @app.get("/condition-groups", response_model=list[ConditionGroupResponse])

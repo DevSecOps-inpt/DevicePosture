@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -36,7 +37,7 @@ EVALUATION_ENGINE_URL = os.getenv("EVALUATION_ENGINE_URL", "http://127.0.0.1:800
 EVALUATION_HTTP_TIMEOUT_SECONDS = float(os.getenv("EVALUATION_HTTP_TIMEOUT_SECONDS", "8"))
 
 
-def _http_get_json(url: str, timeout: float) -> dict | None:
+def _http_get_json(url: str, timeout: float) -> Any:
     request = Request(url, method="GET")
     with urlopen(request, timeout=timeout) as response:
         payload = response.read().decode("utf-8")
@@ -60,33 +61,35 @@ def _http_post_json(url: str, payload: dict, timeout: float) -> dict | None:
     return json.loads(raw)
 
 
-def resolve_lifecycle_policy(
+def resolve_lifecycle_policies(
     *,
     endpoint_id: str,
     event_type: str,
     logger: logging.Logger,
-) -> dict | None:
+) -> list[dict]:
     lifecycle_event_types = LIFECYCLE_POLICY_EVENT_MAP.get(event_type)
     if lifecycle_event_types is None:
-        return None
+        return []
 
     for lifecycle_event_type in lifecycle_event_types:
-        url = f"{POLICY_SERVICE_URL}/lifecycle-policy-match/{quote_plus(lifecycle_event_type)}/{quote_plus(endpoint_id)}"
+        url = f"{POLICY_SERVICE_URL}/lifecycle-policy-matches/{quote_plus(lifecycle_event_type)}/{quote_plus(endpoint_id)}"
         try:
             payload = _http_get_json(url, POLICY_HTTP_TIMEOUT_SECONDS)
         except URLError as exc:
             logger.warning("failed to resolve lifecycle policy endpoint_id=%s event_type=%s: %s", endpoint_id, event_type, exc)
-            return None
+            return []
         except json.JSONDecodeError:
             logger.warning(
                 "failed to decode lifecycle policy response endpoint_id=%s event_type=%s",
                 endpoint_id,
                 event_type,
             )
-            return None
-        if payload is not None:
-            return payload
-    return None
+            return []
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            return [payload]
+    return []
 
 
 def _build_lifecycle_execution_plan(policy: dict, compliant: bool) -> dict:
@@ -245,14 +248,12 @@ def create_lifecycle_event(
     details: dict,
     telemetry_payload: dict | None,
     logger: logging.Logger,
-) -> EndpointLifecycleEvent:
-    policy = resolve_lifecycle_policy(
+) -> EndpointLifecycleEvent | None:
+    policies = resolve_lifecycle_policies(
         endpoint_id=endpoint.endpoint_id,
         event_type=event_type,
         logger=logger,
     )
-    policy_id = policy.get("id") if isinstance(policy, dict) else None
-    policy_name = policy.get("name") if isinstance(policy, dict) else None
     endpoint_ip = details.get("endpoint_ip") if isinstance(details, dict) else None
     if not endpoint_ip and isinstance(details, dict):
         endpoint_ip = details.get("source_ip")
@@ -261,83 +262,94 @@ def create_lifecycle_event(
     if not endpoint_ip:
         endpoint_ip = endpoint.last_ipv4
 
-    evaluation_error: str | None = None
-    decision_payload: dict | None = None
-    if isinstance(policy, dict):
-        try:
-            decision_payload = _evaluate_lifecycle_policy(
-                endpoint=endpoint,
-                policy=policy,
-                event_type=event_type,
-                endpoint_ip=endpoint_ip,
-                telemetry_payload=telemetry_payload,
+    policy_candidates = policies if policies else [None]
+    created_events: list[EndpointLifecycleEvent] = []
+
+    for index, policy in enumerate(policy_candidates):
+        policy_id = policy.get("id") if isinstance(policy, dict) else None
+        policy_name = policy.get("name") if isinstance(policy, dict) else None
+
+        evaluation_error: str | None = None
+        decision_payload: dict | None = None
+        if isinstance(policy, dict):
+            try:
+                decision_payload = _evaluate_lifecycle_policy(
+                    endpoint=endpoint,
+                    policy=policy,
+                    event_type=event_type,
+                    endpoint_ip=endpoint_ip,
+                    telemetry_payload=telemetry_payload,
+                    logger=logger,
+                )
+            except URLError as exc:
+                evaluation_error = str(exc)
+
+        execution_state = "failed" if evaluation_error else "pending"
+        execution_result: dict = {}
+        if evaluation_error:
+            execution_result = {"error": f"policy evaluation failed: {evaluation_error}"}
+        else:
+            execution_state, execution_result = _execute_lifecycle_policy(
+                decision_payload=decision_payload,
                 logger=logger,
             )
-        except URLError as exc:
-            evaluation_error = str(exc)
 
-    execution_state = "failed" if evaluation_error else "pending"
-    execution_result: dict = {}
-    if evaluation_error:
-        execution_result = {"error": f"policy evaluation failed: {evaluation_error}"}
-    else:
-        execution_state, execution_result = _execute_lifecycle_policy(
-            decision_payload=decision_payload,
-            logger=logger,
+        event_details = dict(details or {})
+        event_details["matched_policy_count"] = len(policies)
+        event_details["matched_policy_index"] = index + 1
+
+        if decision_payload:
+            decision_reasons_raw = decision_payload.get("reasons")
+            decision_reasons: list[dict] = []
+            if isinstance(decision_reasons_raw, list):
+                for item in decision_reasons_raw:
+                    if isinstance(item, dict):
+                        decision_reasons.append(
+                            {
+                                "check_type": item.get("check_type"),
+                                "message": item.get("message"),
+                            }
+                        )
+            event_details["decision"] = {
+                "compliant": bool(decision_payload.get("compliant")),
+                "recommended_action": decision_payload.get("recommended_action"),
+                "reason_count": len(decision_reasons),
+                "reasons": decision_reasons,
+            }
+        if execution_result:
+            event_details["execution"] = execution_result
+
+        event = EndpointLifecycleEvent(
+            endpoint_ref=endpoint.id,
+            endpoint_id=endpoint.endpoint_id,
+            event_type=event_type,
+            previous_status=previous_status,
+            current_status=current_status,
+            matched_policy_id=policy_id,
+            matched_policy_name=policy_name,
+            execution_state=execution_state,
+            details=event_details,
         )
-
-    event_details = dict(details or {})
-    if decision_payload:
-        decision_reasons_raw = decision_payload.get("reasons")
-        decision_reasons: list[dict] = []
-        if isinstance(decision_reasons_raw, list):
-            for item in decision_reasons_raw:
-                if isinstance(item, dict):
-                    decision_reasons.append(
-                        {
-                            "check_type": item.get("check_type"),
-                            "message": item.get("message"),
-                        }
-                    )
-        event_details["decision"] = {
-            "compliant": bool(decision_payload.get("compliant")),
-            "recommended_action": decision_payload.get("recommended_action"),
-            "reason_count": len(decision_reasons),
-            "reasons": decision_reasons,
-        }
-    if execution_result:
-        event_details["execution"] = execution_result
-
-    event = EndpointLifecycleEvent(
-        endpoint_ref=endpoint.id,
-        endpoint_id=endpoint.endpoint_id,
-        event_type=event_type,
-        previous_status=previous_status,
-        current_status=current_status,
-        matched_policy_id=policy_id,
-        matched_policy_name=policy_name,
-        execution_state=execution_state,
-        details=event_details,
-    )
-    db.add(event)
-    logger.info(
-        "lifecycle event endpoint_id=%s event_type=%s previous=%s current=%s policy_id=%s execution_state=%s",
-        endpoint.endpoint_id,
-        event_type,
-        previous_status,
-        current_status,
-        policy_id,
-        execution_state,
-    )
-    if decision_payload and not bool(decision_payload.get("compliant")):
-        logger.warning(
-            "lifecycle non-compliant endpoint_id=%s event_type=%s policy_id=%s reasons=%s",
+        db.add(event)
+        created_events.append(event)
+        logger.info(
+            "lifecycle event endpoint_id=%s event_type=%s previous=%s current=%s policy_id=%s execution_state=%s",
             endpoint.endpoint_id,
             event_type,
+            previous_status,
+            current_status,
             policy_id,
-            decision_payload.get("reasons"),
+            execution_state,
         )
-    return event
+        if decision_payload and not bool(decision_payload.get("compliant")):
+            logger.warning(
+                "lifecycle non-compliant endpoint_id=%s event_type=%s policy_id=%s reasons=%s",
+                endpoint.endpoint_id,
+                event_type,
+                policy_id,
+                decision_payload.get("reasons"),
+            )
+    return created_events[-1] if created_events else None
 
 
 def reconcile_inactive_transitions(*, db: Session, logger: logging.Logger) -> None:
