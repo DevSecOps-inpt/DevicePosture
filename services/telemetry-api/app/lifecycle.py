@@ -97,16 +97,40 @@ def _build_lifecycle_execution_plan(policy: dict, compliant: bool) -> dict:
     if not isinstance(execution, dict):
         return {}
 
-    actions_key = "on_compliant" if compliant else "on_non_compliant"
-    raw_actions = execution.get(actions_key)
-    if not isinstance(raw_actions, list):
-        return {}
+    def _enabled_actions(raw_actions: Any) -> list[dict]:
+        if not isinstance(raw_actions, list):
+            return []
+        return [
+            action
+            for action in raw_actions
+            if isinstance(action, dict) and action.get("enabled", True)
+        ]
 
-    actions = [
-        action
-        for action in raw_actions
-        if isinstance(action, dict) and action.get("enabled", True)
-    ]
+    def _dedupe_actions(actions: list[dict]) -> list[dict]:
+        deduped: list[dict] = []
+        seen: set[str] = set()
+        for action in actions:
+            signature = json.dumps(action, sort_keys=True, separators=(",", ":"))
+            if signature in seen:
+                continue
+            seen.add(signature)
+            deduped.append(action)
+        return deduped
+
+    if policy.get("lifecycle_event_type") == "active_to_inactive":
+        # For active_to_inactive policies, execution is event-driven (no compliant/non-compliant split).
+        # We accept either explicit `on_event` actions (future-safe) or merge legacy branches.
+        event_actions = _enabled_actions(execution.get("on_event"))
+        if not event_actions:
+            event_actions = _dedupe_actions(
+                _enabled_actions(execution.get("on_non_compliant"))
+                + _enabled_actions(execution.get("on_compliant"))
+            )
+        actions = event_actions
+    else:
+        actions_key = "on_compliant" if compliant else "on_non_compliant"
+        actions = _enabled_actions(execution.get(actions_key))
+
     if not actions:
         return {}
 
@@ -127,6 +151,26 @@ def _evaluate_lifecycle_policy(
     telemetry_payload: dict | None,
     logger: logging.Logger,
 ) -> dict:
+    if event_type == EVENT_ACTIVE_TO_INACTIVE:
+        # Active->inactive policies execute on transition regardless of posture conditions.
+        return {
+            "endpoint_id": endpoint.endpoint_id,
+            "endpoint_ip": endpoint_ip,
+            "policy_id": policy.get("id"),
+            "policy_name": policy.get("name"),
+            "compliant": True,
+            "recommended_action": "allow",
+            "reasons": [
+                {
+                    "check_type": "lifecycle_event",
+                    "message": "Lifecycle active_to_inactive policy matched",
+                }
+            ],
+            "execution_plan": _build_lifecycle_execution_plan(policy, compliant=True),
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+            "telemetry_timestamp": endpoint.last_collected_at.isoformat() if endpoint.last_collected_at else None,
+        }
+
     conditions = policy.get("conditions")
     has_conditions = isinstance(conditions, list) and len(conditions) > 0
     if not has_conditions:

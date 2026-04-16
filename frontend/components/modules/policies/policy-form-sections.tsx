@@ -161,6 +161,17 @@ export function PolicyConditionsSection({
   conditionGroups = [],
   ldapProviders = []
 }: PolicyFormSectionsProps) {
+  if (value.policyType === "active_to_inactive") {
+    return (
+      <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
+        <p className="text-sm font-medium text-white">Conditions</p>
+        <p className="text-xs text-slate-400">
+          This policy type executes on the active-to-inactive transition and does not use compliance conditions.
+        </p>
+      </div>
+    );
+  }
+
   const osGroups = conditionGroups.filter((group) => group.group_type === "allowed_os");
   const patchGroups = conditionGroups.filter((group) => group.group_type === "allowed_patches");
   const antivirusGroups = conditionGroups.filter(
@@ -560,6 +571,16 @@ export function PolicyExecutionSection({
   adapterProfiles = [],
   ipGroups = []
 }: PolicyFormSectionsProps) {
+  const isActiveToInactivePolicy = value.policyType === "active_to_inactive";
+  const transitionObjectAction =
+    value.execution.objectOnNonCompliant !== "none"
+      ? value.execution.objectOnNonCompliant
+      : value.execution.objectOnCompliant;
+  const transitionAdapterAction =
+    value.execution.adapterOnNonCompliant !== "none"
+      ? value.execution.adapterOnNonCompliant
+      : value.execution.adapterOnCompliant;
+
   return (
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
       <p className="text-sm font-medium text-white">Adapter and execution</p>
@@ -626,28 +647,53 @@ export function PolicyExecutionSection({
         </label>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <ObjectActionSelect
-          label="On compliant: object action"
-          value={value.execution.objectOnCompliant}
-          onChange={(next) => updateExecution(onChange, { objectOnCompliant: next })}
-        />
-        <ObjectActionSelect
-          label="On non-compliant: object action"
-          value={value.execution.objectOnNonCompliant}
-          onChange={(next) => updateExecution(onChange, { objectOnNonCompliant: next })}
-        />
-        <AdapterActionSelect
-          label="On compliant: adapter action"
-          value={value.execution.adapterOnCompliant}
-          onChange={(next) => updateExecution(onChange, { adapterOnCompliant: next })}
-        />
-        <AdapterActionSelect
-          label="On non-compliant: adapter action"
-          value={value.execution.adapterOnNonCompliant}
-          onChange={(next) => updateExecution(onChange, { adapterOnNonCompliant: next })}
-        />
-      </div>
+      {isActiveToInactivePolicy ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <ObjectActionSelect
+            label="On active -> inactive: object action"
+            value={transitionObjectAction}
+            onChange={(next) =>
+              updateExecution(onChange, {
+                objectOnCompliant: next,
+                objectOnNonCompliant: next
+              })
+            }
+          />
+          <AdapterActionSelect
+            label="On active -> inactive: adapter action"
+            value={transitionAdapterAction}
+            onChange={(next) =>
+              updateExecution(onChange, {
+                adapterOnCompliant: next,
+                adapterOnNonCompliant: next
+              })
+            }
+          />
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          <ObjectActionSelect
+            label="On compliant: object action"
+            value={value.execution.objectOnCompliant}
+            onChange={(next) => updateExecution(onChange, { objectOnCompliant: next })}
+          />
+          <ObjectActionSelect
+            label="On non-compliant: object action"
+            value={value.execution.objectOnNonCompliant}
+            onChange={(next) => updateExecution(onChange, { objectOnNonCompliant: next })}
+          />
+          <AdapterActionSelect
+            label="On compliant: adapter action"
+            value={value.execution.adapterOnCompliant}
+            onChange={(next) => updateExecution(onChange, { adapterOnCompliant: next })}
+          />
+          <AdapterActionSelect
+            label="On non-compliant: adapter action"
+            value={value.execution.adapterOnNonCompliant}
+            onChange={(next) => updateExecution(onChange, { adapterOnNonCompliant: next })}
+          />
+        </div>
+      )}
 
       <div className="rounded-xl border border-border bg-slate-900/40 p-3">
         <div className="flex items-center justify-between gap-3">

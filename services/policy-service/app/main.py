@@ -384,6 +384,16 @@ def resolve_assigned_policies(
     scope: str,
     lifecycle_event_type: str | None = None,
 ) -> list[Policy]:
+    def _dedupe_by_policy_id(policies: list[Policy]) -> list[Policy]:
+        deduped: list[Policy] = []
+        seen_policy_ids: set[int] = set()
+        for policy in policies:
+            if policy.id in seen_policy_ids:
+                continue
+            seen_policy_ids.add(policy.id)
+            deduped.append(policy)
+        return deduped
+
     def _resolve_from_assignment_query(base_query) -> list[Policy]:
         query = base_query.where(
             Policy.is_active.is_(True),
@@ -393,14 +403,7 @@ def resolve_assigned_policies(
             query = query.where(Policy.lifecycle_event_type == lifecycle_event_type)
         query = query.order_by(PolicyAssignmentModel.id.desc(), Policy.id.desc())
         rows = db.scalars(query).all()
-        deduped: list[Policy] = []
-        seen_policy_ids: set[int] = set()
-        for policy in rows:
-            if policy.id in seen_policy_ids:
-                continue
-            seen_policy_ids.add(policy.id)
-            deduped.append(policy)
-        return deduped
+        return _dedupe_by_policy_id(rows)
 
     endpoint_policies = _resolve_from_assignment_query(
         select(Policy)
@@ -410,9 +413,8 @@ def resolve_assigned_policies(
             PolicyAssignmentModel.assignment_value == endpoint_id,
         )
     )
-    if endpoint_policies:
-        return endpoint_policies
 
+    group_policies: list[Policy] = []
     if groups:
         group_policies = _resolve_from_assignment_query(
             select(Policy)
@@ -422,14 +424,17 @@ def resolve_assigned_policies(
                 PolicyAssignmentModel.assignment_value.in_(groups),
             )
         )
-        if group_policies:
-            return group_policies
 
-    return _resolve_from_assignment_query(
+    default_policies = _resolve_from_assignment_query(
         select(Policy)
         .join(PolicyAssignmentModel, PolicyAssignmentModel.policy_id == Policy.id)
         .where(PolicyAssignmentModel.assignment_type == "default")
     )
+    return _dedupe_by_policy_id([
+        *endpoint_policies,
+        *group_policies,
+        *default_policies,
+    ])
 
 
 def hash_password(password: str, *, iterations: int = 120_000) -> str:
@@ -741,7 +746,10 @@ def create_policy(
         raise HTTPException(status_code=409, detail="Policy with this name already exists")
 
     normalized_conditions = [item.model_dump(mode="json") for item in payload.conditions]
-    normalized_conditions = enrich_policy_conditions_for_storage(normalized_conditions, db)
+    if payload.policy_scope == "lifecycle" and payload.lifecycle_event_type == "active_to_inactive":
+        normalized_conditions = []
+    else:
+        normalized_conditions = enrich_policy_conditions_for_storage(normalized_conditions, db)
 
     policy = Policy(
         name=name,
@@ -805,7 +813,9 @@ def update_policy(
     if candidate_scope == "posture":
         changes["lifecycle_event_type"] = None
 
-    if "conditions" in changes:
+    if candidate_scope == "lifecycle" and candidate_event_type == "active_to_inactive":
+        changes["conditions"] = []
+    elif "conditions" in changes:
         normalized_conditions = [item.model_dump(mode="json") for item in payload.conditions or []]
         changes["conditions"] = enrich_policy_conditions_for_storage(normalized_conditions, db)
     if "execution" in changes and payload.execution is not None:

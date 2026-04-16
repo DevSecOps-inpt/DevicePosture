@@ -478,10 +478,29 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     }
   }
 
+  if (state.policyType === "active_to_inactive") {
+    const objectAction: GroupAction =
+      state.execution.objectOnNonCompliant !== "none"
+        ? state.execution.objectOnNonCompliant
+        : state.execution.objectOnCompliant;
+    const adapterAction: AdapterAction =
+      state.execution.adapterOnNonCompliant !== "none"
+        ? state.execution.adapterOnNonCompliant
+        : state.execution.adapterOnCompliant;
+    state.execution.objectOnCompliant = objectAction;
+    state.execution.objectOnNonCompliant = objectAction;
+    state.execution.adapterOnCompliant = adapterAction;
+    state.execution.adapterOnNonCompliant = adapterAction;
+  }
+
   return state;
 }
 
 export function buildPolicyConditions(state: PolicyEditorState): PolicyCondition[] {
+  if (state.policyType === "active_to_inactive") {
+    return [];
+  }
+
   const conditions: PolicyCondition[] = [];
 
   if (state.conditions.osNameEnabled) {
@@ -610,6 +629,56 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
   const objectGroup = state.execution.objectGroup.trim();
   const objectGroupId = state.execution.objectGroupId.trim();
 
+  const transitionObjectAction: GroupAction =
+    state.execution.objectOnNonCompliant !== "none"
+      ? state.execution.objectOnNonCompliant
+      : state.execution.objectOnCompliant;
+  const transitionAdapterAction: AdapterAction =
+    state.execution.adapterOnNonCompliant !== "none"
+      ? state.execution.adapterOnNonCompliant
+      : state.execution.adapterOnCompliant;
+
+  if (state.policyType === "active_to_inactive") {
+    const eventActions: Array<{
+      action_type: PolicyActionType;
+      enabled: boolean;
+      parameters: Record<string, unknown>;
+    }> = [];
+
+    if (transitionObjectAction === "add") {
+      eventActions.push(executionAction("object.add_ip_to_group", objectGroup, objectGroupId));
+    }
+    if (transitionObjectAction === "remove") {
+      eventActions.push(executionAction("object.remove_ip_from_group", objectGroup, objectGroupId));
+    }
+
+    if (transitionAdapterAction === "push_group") {
+      eventActions.push(executionAction("adapter.sync_group", objectGroup, objectGroupId));
+    } else if (transitionAdapterAction === "add_ip") {
+      eventActions.push(executionAction("adapter.add_ip_to_group", objectGroup, objectGroupId));
+    } else if (transitionAdapterAction === "remove_ip") {
+      eventActions.push(executionAction("adapter.remove_ip_from_group", objectGroup, objectGroupId));
+    }
+
+    return {
+      adapter: state.execution.adapter.trim() || "fortigate",
+      adapter_profile: state.execution.adapterProfile.trim() || null,
+      object_group: objectGroup || null,
+      execution_gate:
+        state.execution.gateEnabled && state.execution.gateGroupName.trim()
+          ? {
+              ip_group_condition: {
+                enabled: true,
+                group_name: state.execution.gateGroupName.trim(),
+                operator: state.execution.gateOperator
+              }
+            }
+          : null,
+      on_compliant: eventActions,
+      on_non_compliant: eventActions
+    };
+  }
+
   if (state.execution.objectOnCompliant === "add") {
     onCompliant.push(executionAction("object.add_ip_to_group", objectGroup, objectGroupId));
   }
@@ -717,21 +786,34 @@ export function validatePolicyEditorState(state: PolicyEditorState): string | nu
   if (!state.name.trim()) {
     return "Policy name is required.";
   }
-  if (state.conditions.osNameEnabled && state.conditions.osNameGroupId === "" && !splitValues(state.conditions.osNameValues).length) {
-    return "OS name condition is enabled but has no values.";
-  }
-  if (state.conditions.patchesEnabled && state.conditions.patchesGroupId === "" && !splitValues(state.conditions.patchesValues).length) {
-    return "Patches condition is enabled but has no values.";
-  }
-  if (
-    state.conditions.antivirusFamilyEnabled &&
-    state.conditions.antivirusFamilyGroupId === "" &&
-    !splitValues(state.conditions.antivirusFamilyValues).length
-  ) {
-    return "Antivirus family condition is enabled but has no values.";
-  }
-  if (state.conditions.antivirusStatusEnabled && !splitValues(state.conditions.antivirusStatusValues).length) {
-    return "Antivirus status condition is enabled but has no values.";
+  if (state.policyType !== "active_to_inactive") {
+    if (
+      state.conditions.osNameEnabled &&
+      state.conditions.osNameGroupId === "" &&
+      !splitValues(state.conditions.osNameValues).length
+    ) {
+      return "OS name condition is enabled but has no values.";
+    }
+    if (
+      state.conditions.patchesEnabled &&
+      state.conditions.patchesGroupId === "" &&
+      !splitValues(state.conditions.patchesValues).length
+    ) {
+      return "Patches condition is enabled but has no values.";
+    }
+    if (
+      state.conditions.antivirusFamilyEnabled &&
+      state.conditions.antivirusFamilyGroupId === "" &&
+      !splitValues(state.conditions.antivirusFamilyValues).length
+    ) {
+      return "Antivirus family condition is enabled but has no values.";
+    }
+    if (
+      state.conditions.antivirusStatusEnabled &&
+      !splitValues(state.conditions.antivirusStatusValues).length
+    ) {
+      return "Antivirus status condition is enabled but has no values.";
+    }
   }
   const needsObjectGroup =
     state.execution.objectOnCompliant !== "none" ||
