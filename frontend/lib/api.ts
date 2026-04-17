@@ -50,16 +50,25 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, option
   const authHeaders =
     SHARED_API_KEY.trim().length > 0 ? ({ "X-API-Key": SHARED_API_KEY.trim() } as Record<string, string>) : {};
   const includeCredentials = options?.includeCredentials ?? shouldUsePolicySessionCookie(input);
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      ...authHeaders,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(init?.headers ?? {})
-    },
-    credentials: includeCredentials ? "include" : "same-origin",
-    cache: "no-store"
-  });
+  let response: Response;
+  try {
+    response = await fetch(input, {
+      ...init,
+      headers: {
+        ...authHeaders,
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.headers ?? {})
+      },
+      credentials: includeCredentials ? "include" : "same-origin",
+      cache: "no-store"
+    });
+  } catch (error) {
+    const target = typeof input === "string" ? input : input.toString();
+    const reason = error instanceof Error ? error.message : "Unknown network error";
+    throw new Error(
+      `Network error while calling ${target}. Verify service is running, CORS origin is allowed, and URL/protocol are correct (${reason}).`
+    );
+  }
 
   if (!response.ok) {
     const raw = await response.text();
