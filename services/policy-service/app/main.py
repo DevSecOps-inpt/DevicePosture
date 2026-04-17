@@ -761,6 +761,48 @@ def _build_identity_search_bases(
     return deduped
 
 
+def _normalize_ldap_search_scope(search_scope: Any) -> int:
+    if isinstance(search_scope, int):
+        return search_scope
+    text = str(search_scope or "").strip().upper()
+    mapping = {
+        "BASE": 0,
+        "LEVEL": 1,
+        "SUBTREE": 2,
+    }
+    return mapping.get(text, 2)
+
+
+def _build_ldap_server(*, server_uri: str, timeout_seconds: float, Server: Any, ALL: Any) -> Any:
+    parsed = urlparse(server_uri)
+    scheme = (parsed.scheme or "").strip().lower()
+    use_ssl = scheme == "ldaps"
+    host = (parsed.hostname or "").strip()
+    if not host:
+        if "://" in server_uri:
+            host = server_uri.split("://", 1)[1].split("/", 1)[0].split(":", 1)[0].strip()
+        else:
+            host = server_uri.split("/", 1)[0].split(":", 1)[0].strip()
+    if not host:
+        raise ValueError("Missing LDAP host in server_uri")
+
+    default_port = 636 if use_ssl else 389
+    port = parsed.port if parsed.port is not None else default_port
+    try:
+        port = int(port)
+    except Exception as exc:
+        raise ValueError(f"Invalid LDAP port in server_uri: {server_uri}") from exc
+
+    connect_timeout = max(1, int(float(timeout_seconds)))
+    return Server(
+        host=host,
+        port=port,
+        use_ssl=use_ssl,
+        get_info=ALL,
+        connect_timeout=connect_timeout,
+    )
+
+
 def _group_candidate_from_ldap_entry(*, entry: Any, name_attribute: str) -> dict[str, Any]:
     entry_json = entry.entry_attributes_as_dict
     candidate_name = (
@@ -795,15 +837,21 @@ def _search_ldap_groups_across_bases(
     warnings: list[str] = []
     remaining = size_limit if isinstance(size_limit, int) and size_limit > 0 else None
 
+    normalized_scope = _normalize_ldap_search_scope(search_scope)
     for search_base in search_bases:
-        base_limit = remaining if remaining is not None else 0
+        base_limit = int(remaining) if remaining is not None else 0
         try:
+            search_kwargs: dict[str, Any] = {
+                "search_base": search_base,
+                "search_filter": search_filter,
+                "search_scope": normalized_scope,
+                "attributes": [name_attribute, "distinguishedName", "cn", "name", "sAMAccountName"],
+            }
+            if base_limit > 0:
+                search_kwargs["size_limit"] = int(base_limit)
+
             ok = connection.search(
-                search_base=search_base,
-                search_filter=search_filter,
-                search_scope=search_scope,
-                attributes=[name_attribute, "distinguishedName", "cn", "name", "sAMAccountName"],
-                size_limit=base_limit,
+                **search_kwargs,
             )
             if not ok:
                 result = getattr(connection, "result", {}) or {}
@@ -935,12 +983,13 @@ def _search_first_ldap_entry(
     attributes: list[str],
 ) -> tuple[Any | None, list[str]]:
     warnings: list[str] = []
+    normalized_scope = _normalize_ldap_search_scope(search_scope)
     for search_base in search_bases:
         try:
             ok = connection.search(
                 search_base=search_base,
                 search_filter=search_filter,
-                search_scope=search_scope,
+                search_scope=normalized_scope,
                 attributes=attributes,
             )
             if not ok:
@@ -1005,7 +1054,12 @@ def _extract_ldap_member_groups(
         return group_names, group_dns
 
     try:
-        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        server = _build_ldap_server(
+            server_uri=server_uri,
+            timeout_seconds=timeout_seconds,
+            Server=Server,
+            ALL=ALL,
+        )
 
         if bind_template:
             user_bind_dn = bind_template.replace("{username}", username)
@@ -1222,7 +1276,12 @@ def _verify_endpoint_domain_membership(
     search_filter = search_filter_template.replace("{hostname}", escaped_hostname)
 
     try:
-        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        server = _build_ldap_server(
+            server_uri=server_uri,
+            timeout_seconds=timeout_seconds,
+            Server=Server,
+            ALL=ALL,
+        )
         connection_kwargs: dict[str, Any] = {
             "auto_bind": True,
             "receive_timeout": timeout_seconds,
@@ -1350,7 +1409,12 @@ def sync_provider_directory_groups(
         search_filter = str(settings.get("group_search_filter") or "(objectClass=group)").strip() or "(objectClass=group)"
         timeout_seconds = float(settings.get("timeout_seconds", 5))
 
-        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        server = _build_ldap_server(
+            server_uri=server_uri,
+            timeout_seconds=timeout_seconds,
+            Server=Server,
+            ALL=ALL,
+        )
         if bind_dn:
             connection = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=timeout_seconds)
         else:
@@ -1373,9 +1437,9 @@ def sync_provider_directory_groups(
                 "; ".join(sync_warnings),
             )
     except Exception as exc:
-        logger.warning("failed to sync LDAP directory groups provider_id=%s: %s", provider.id, exc)
+        logger.exception("failed to sync LDAP directory groups provider_id=%s: %s", provider.id, exc)
         if not allow_cache_fallback:
-            raise HTTPException(status_code=502, detail=f"LDAP live sync failed: {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"LDAP live sync failed ({type(exc).__name__}): {exc}") from exc
         synced_groups = _groups_from_provider_settings(settings)
         if not synced_groups:
             raise HTTPException(
@@ -1448,7 +1512,12 @@ def search_provider_directory_groups(
     candidates: list[dict[str, Any]] = []
     search_warnings: list[str] = []
     try:
-        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        server = _build_ldap_server(
+            server_uri=server_uri,
+            timeout_seconds=timeout_seconds,
+            Server=Server,
+            ALL=ALL,
+        )
         if bind_dn:
             connection = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=timeout_seconds)
         else:
@@ -1463,7 +1532,8 @@ def search_provider_directory_groups(
                 search_scope=SUBTREE,
             )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LDAP group search failed: {exc}") from exc
+        logger.exception("LDAP group search failed provider_id=%s: %s", provider.id, exc)
+        raise HTTPException(status_code=502, detail=f"LDAP group search failed ({type(exc).__name__}): {exc}") from exc
 
     if payload.computer_only:
         candidates = [item for item in candidates if bool(item.get("is_computer_group"))]
