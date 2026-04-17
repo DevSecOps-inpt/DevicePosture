@@ -44,6 +44,17 @@ ensure_venv() {
   fi
 }
 
+ensure_policy_runtime_dependencies() {
+  ensure_venv
+  if ! "$PYTHON_PATH" -c "import ldap3" >/dev/null 2>&1; then
+    echo "Missing python package 'ldap3'; installing policy-service dependencies..."
+    (
+      cd "${SERVICE_DIRS["policy-service"]}"
+      "$PYTHON_PATH" -m pip install -r requirements.txt
+    )
+  fi
+}
+
 install_repo() {
   ensure_venv
   echo "Installing shared package and service dependencies..."
@@ -276,6 +287,9 @@ case "$ACTION" in
     ensure_venv
     case "$COMPONENT" in
       telemetry-api|policy-service|evaluation-engine|enforcement-service)
+        if [[ "$COMPONENT" == "policy-service" ]]; then
+          ensure_policy_runtime_dependencies
+        fi
         run_service_foreground "$COMPONENT"
         ;;
       python-collector)
@@ -295,6 +309,7 @@ case "$ACTION" in
     ;;
   start-all)
     ensure_venv
+    ensure_policy_runtime_dependencies
     for service in telemetry-api policy-service enforcement-service evaluation-engine; do
       start_service_background "$service"
     done

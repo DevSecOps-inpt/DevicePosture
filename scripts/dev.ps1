@@ -76,6 +76,22 @@ function Ensure-Venv {
     }
 }
 
+function Ensure-PolicyRuntimeDependencies {
+    Ensure-Venv
+    & $PythonPath -c "import ldap3" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Missing python package 'ldap3'; installing policy-service dependencies..."
+        $policyServiceDir = $ServiceDefinitions["policy-service"].WorkDir
+        Push-Location $policyServiceDir
+        try {
+            & $PythonPath -m pip install -r "requirements.txt"
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+
 function Install-Repo {
     Ensure-Venv
     Write-Host "Installing shared package and service dependencies..."
@@ -405,6 +421,9 @@ switch ($Action) {
         }
 
         if ($Component -in $ServiceDefinitions.Keys) {
+            if ($Component -eq "policy-service") {
+                Ensure-PolicyRuntimeDependencies
+            }
             Run-ServiceForeground -Name $Component
         }
         elseif ($Component -eq "python-collector") {
@@ -425,6 +444,7 @@ switch ($Action) {
     }
     "start-all" {
         Ensure-Venv
+        Ensure-PolicyRuntimeDependencies
         foreach ($name in @("telemetry-api", "policy-service", "enforcement-service", "evaluation-engine")) {
             Start-ServiceBackground -Name $name
         }

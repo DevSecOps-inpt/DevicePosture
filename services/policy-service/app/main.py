@@ -725,6 +725,42 @@ def _build_group_search_bases(*, settings: dict[str, Any], explicit_search_base:
     return deduped
 
 
+def _build_identity_search_bases(
+    *,
+    settings: dict[str, Any],
+    identity_type: str,
+    explicit_search_base: str | None = None,
+) -> list[str]:
+    base_dn = str(settings.get("base_dn") or "").strip()
+    candidates: list[str] = []
+
+    if explicit_search_base and explicit_search_base.strip():
+        candidates.append(explicit_search_base.strip())
+
+    if identity_type == "user":
+        configured = str(settings.get("user_search_base") or "").strip()
+        if configured:
+            candidates.append(configured)
+        if base_dn:
+            candidates.extend([f"CN=Users,{base_dn}", f"CN=Builtin,{base_dn}", base_dn])
+    else:
+        configured = str(settings.get("computer_search_base") or "").strip()
+        if configured:
+            candidates.append(configured)
+        if base_dn:
+            candidates.extend([f"CN=Computers,{base_dn}", f"OU=Domain Controllers,{base_dn}", base_dn])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        key = item.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item.strip())
+    return deduped
+
+
 def _group_candidate_from_ldap_entry(*, entry: Any, name_attribute: str) -> dict[str, Any]:
     entry_json = entry.entry_attributes_as_dict
     candidate_name = (
@@ -752,6 +788,7 @@ def _search_ldap_groups_across_bases(
     search_bases: list[str],
     search_filter: str,
     name_attribute: str,
+    search_scope: Any,
     size_limit: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     candidates: list[dict[str, Any]] = []
@@ -764,7 +801,7 @@ def _search_ldap_groups_across_bases(
             ok = connection.search(
                 search_base=search_base,
                 search_filter=search_filter,
-                search_scope=SUBTREE,
+                search_scope=search_scope,
                 attributes=[name_attribute, "distinguishedName", "cn", "name", "sAMAccountName"],
                 size_limit=base_limit,
             )
@@ -889,6 +926,36 @@ def _groups_from_provider_settings(settings: dict[str, Any]) -> list[dict[str, A
     return groups
 
 
+def _search_first_ldap_entry(
+    *,
+    connection: Any,
+    search_bases: list[str],
+    search_filter: str,
+    search_scope: Any,
+    attributes: list[str],
+) -> tuple[Any | None, list[str]]:
+    warnings: list[str] = []
+    for search_base in search_bases:
+        try:
+            ok = connection.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=search_scope,
+                attributes=attributes,
+            )
+            if not ok:
+                result = getattr(connection, "result", {}) or {}
+                result_code = int(result.get("result", 1))
+                if result_code not in {0, 4}:
+                    warnings.append(f"{search_base}: {result.get('description', 'search_failed')}")
+                    continue
+            if connection.entries:
+                return connection.entries[0], warnings
+        except Exception as exc:
+            warnings.append(f"{search_base}: {exc}")
+    return None, warnings
+
+
 def _extract_ldap_member_groups(
     provider: AuthProviderModel,
     *,
@@ -900,7 +967,7 @@ def _extract_ldap_member_groups(
         from ldap3 import ALL, SUBTREE, Connection, Server
         from ldap3.utils.conv import escape_filter_chars
     except Exception as exc:
-        return False, [], [], f"ldap3 dependency is missing: {exc}"
+        return False, [], [], f"LDAP dependency missing (ldap3): {exc}. Run ./scripts/dev.sh setup"
 
     server_uri = str(settings.get("server_uri") or "").strip()
     if not server_uri:
@@ -910,7 +977,7 @@ def _extract_ldap_member_groups(
     bind_template = str(settings.get("bind_dn_template") or settings.get("user_bind_dn_template") or "").strip()
     service_bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
     service_bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
-    user_search_base = str(settings.get("user_search_base") or settings.get("base_dn") or "").strip()
+    user_search_bases = _build_identity_search_bases(settings=settings, identity_type="user")
     user_search_filter = str(settings.get("user_search_filter") or "(|(uid={username})(sAMAccountName={username})(cn={username}))").strip()
 
     escaped_username = escape_filter_chars(username)
@@ -944,16 +1011,23 @@ def _extract_ldap_member_groups(
             user_bind_dn = bind_template.replace("{username}", username)
             connection = Connection(server, user=user_bind_dn, password=password, auto_bind=True, receive_timeout=timeout_seconds)
             with connection:
-                if user_search_base:
-                    connection.search(
-                        search_base=user_search_base,
+                if user_search_bases:
+                    target_entry, lookup_warnings = _search_first_ldap_entry(
+                        connection=connection,
+                        search_bases=user_search_bases,
                         search_filter=user_filter,
                         search_scope=SUBTREE,
                         attributes=["memberOf", "cn", "distinguishedName"],
                     )
-                    if not connection.entries:
+                    if target_entry is None:
+                        if lookup_warnings:
+                            logger.info(
+                                "provider_id=%s LDAP user lookup warnings (bind-template): %s",
+                                provider.id,
+                                "; ".join(lookup_warnings),
+                            )
                         return True, [], [], "LDAP bind succeeded but user group membership is empty"
-                    group_names, group_dns = _read_groups_from_entry(connection.entries[0])
+                    group_names, group_dns = _read_groups_from_entry(target_entry)
                     return True, group_names, group_dns, "LDAP credentials accepted"
                 return True, [], [], "LDAP credentials accepted"
 
@@ -966,17 +1040,23 @@ def _extract_ldap_member_groups(
                 receive_timeout=timeout_seconds,
             )
             with service_connection:
-                if not user_search_base:
+                if not user_search_bases:
                     return False, [], [], "Missing LDAP user_search_base/base_dn for service-account flow"
-                service_connection.search(
-                    search_base=user_search_base,
+                user_entry, lookup_warnings = _search_first_ldap_entry(
+                    connection=service_connection,
+                    search_bases=user_search_bases,
                     search_filter=user_filter,
                     search_scope=SUBTREE,
                     attributes=["distinguishedName", "memberOf", "cn"],
                 )
-                if not service_connection.entries:
+                if user_entry is None:
+                    if lookup_warnings:
+                        logger.info(
+                            "provider_id=%s LDAP user lookup warnings (service-account): %s",
+                            provider.id,
+                            "; ".join(lookup_warnings),
+                        )
                     return False, [], [], "LDAP user was not found in directory"
-                user_entry = service_connection.entries[0]
                 user_dn = str(getattr(user_entry, "entry_dn", "")).strip()
                 if not user_dn:
                     return False, [], [], "LDAP user DN could not be resolved"
@@ -989,13 +1069,20 @@ def _extract_ldap_member_groups(
                     receive_timeout=timeout_seconds,
                 )
                 with user_connection:
-                    user_connection.search(
-                        search_base=user_search_base,
+                    target_entry, user_lookup_warnings = _search_first_ldap_entry(
+                        connection=user_connection,
+                        search_bases=user_search_bases,
                         search_filter=user_filter,
                         search_scope=SUBTREE,
                         attributes=["memberOf", "cn", "distinguishedName"],
                     )
-                    target_entry = user_connection.entries[0] if user_connection.entries else user_entry
+                    if target_entry is None and user_lookup_warnings:
+                        logger.info(
+                            "provider_id=%s LDAP user lookup warnings (rebind): %s",
+                            provider.id,
+                            "; ".join(user_lookup_warnings),
+                        )
+                    target_entry = target_entry or user_entry
                     group_names, group_dns = _read_groups_from_entry(target_entry)
                     return True, group_names, group_dns, "LDAP credentials accepted"
 
@@ -1100,7 +1187,7 @@ def _verify_endpoint_domain_membership(
             computer_dn=None,
             member_group_dns=[],
             required_group_dns=required_group_dns,
-            message=f"LDAP verification dependency missing: {exc}",
+            message=f"LDAP verification dependency missing (ldap3): {exc}. Run ./scripts/dev.sh setup",
         )
 
     server_uri = str(settings.get("server_uri") or "").strip()
@@ -1124,7 +1211,7 @@ def _verify_endpoint_domain_membership(
 
     bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
     bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
-    search_base = str(settings.get("computer_search_base") or settings.get("base_dn") or "").strip()
+    search_bases = _build_identity_search_bases(settings=settings, identity_type="computer")
     search_filter_template = str(
         settings.get("computer_search_filter")
         or "(&(objectClass=computer)(|(cn={hostname})(name={hostname})(sAMAccountName={hostname}$)))"
@@ -1145,15 +1232,22 @@ def _verify_endpoint_domain_membership(
             connection_kwargs["password"] = bind_password
         connection = Connection(server, **connection_kwargs)
         with connection:
-            if not search_base:
+            if not search_bases:
                 raise ValueError("Missing computer_search_base/base_dn")
-            connection.search(
-                search_base=search_base,
+            entry, lookup_warnings = _search_first_ldap_entry(
+                connection=connection,
+                search_bases=search_bases,
                 search_filter=search_filter,
                 search_scope=SUBTREE,
                 attributes=["distinguishedName", "memberOf", "cn", "dNSHostName", "name"],
             )
-            if not connection.entries:
+            if entry is None:
+                if lookup_warnings:
+                    logger.info(
+                        "provider_id=%s LDAP computer lookup warnings: %s",
+                        provider.id,
+                        "; ".join(lookup_warnings),
+                    )
                 return EndpointDomainVerificationResponse(
                     ok=False,
                     joined=True,
@@ -1170,8 +1264,6 @@ def _verify_endpoint_domain_membership(
                     required_group_dns=required_group_dns,
                     message="Endpoint computer object not found in LDAP directory",
                 )
-
-            entry = connection.entries[0]
             entry_payload = entry.entry_attributes_as_dict
             raw_member_of = entry_payload.get("memberOf", [])
             if not isinstance(raw_member_of, list):
@@ -1239,7 +1331,13 @@ def sync_provider_directory_groups(
 
     try:
         from ldap3 import ALL, SUBTREE, Connection, Server
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LDAP dependency missing (ldap3): {exc}. Install service dependencies (./scripts/dev.sh setup).",
+        ) from exc
 
+    try:
         server_uri = str(settings.get("server_uri") or "").strip()
         if not server_uri:
             raise ValueError("Missing LDAP server_uri")
@@ -1263,6 +1361,7 @@ def sync_provider_directory_groups(
                 search_bases=search_bases,
                 search_filter=search_filter,
                 name_attribute=name_attribute,
+                search_scope=SUBTREE,
             )
         sync_message = (
             f"Directory groups synchronized from LDAP ({len(synced_groups)} groups, {len(search_bases)} bases)"
@@ -1333,7 +1432,10 @@ def search_provider_directory_groups(
     try:
         from ldap3 import ALL, SUBTREE, Connection, Server
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"ldap3 dependency is missing: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail=f"LDAP dependency missing (ldap3): {exc}. Install service dependencies (./scripts/dev.sh setup).",
+        ) from exc
 
     try:
         search_filter = _build_group_search_filter(
@@ -1358,6 +1460,7 @@ def search_provider_directory_groups(
                 search_filter=search_filter,
                 size_limit=payload.limit,
                 name_attribute=name_attribute,
+                search_scope=SUBTREE,
             )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LDAP group search failed: {exc}") from exc
