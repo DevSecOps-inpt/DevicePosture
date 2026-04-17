@@ -803,6 +803,14 @@ def _build_ldap_server(*, server_uri: str, timeout_seconds: float, Server: Any, 
     )
 
 
+def _normalize_ldap_receive_timeout(timeout_seconds: float | int | str | None) -> int:
+    try:
+        value = int(float(timeout_seconds if timeout_seconds is not None else 5))
+    except Exception:
+        value = 5
+    return max(1, value)
+
+
 def _group_candidate_from_ldap_entry(*, entry: Any, name_attribute: str) -> dict[str, Any]:
     entry_json = entry.entry_attributes_as_dict
     candidate_name = (
@@ -1023,6 +1031,7 @@ def _extract_ldap_member_groups(
         return False, [], [], "Missing LDAP server_uri"
 
     timeout_seconds = float(settings.get("timeout_seconds", 5))
+    receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
     bind_template = str(settings.get("bind_dn_template") or settings.get("user_bind_dn_template") or "").strip()
     service_bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
     service_bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
@@ -1063,7 +1072,13 @@ def _extract_ldap_member_groups(
 
         if bind_template:
             user_bind_dn = bind_template.replace("{username}", username)
-            connection = Connection(server, user=user_bind_dn, password=password, auto_bind=True, receive_timeout=timeout_seconds)
+            connection = Connection(
+                server,
+                user=user_bind_dn,
+                password=password,
+                auto_bind=True,
+                receive_timeout=receive_timeout_seconds,
+            )
             with connection:
                 if user_search_bases:
                     target_entry, lookup_warnings = _search_first_ldap_entry(
@@ -1091,7 +1106,7 @@ def _extract_ldap_member_groups(
                 user=service_bind_dn,
                 password=service_bind_password,
                 auto_bind=True,
-                receive_timeout=timeout_seconds,
+                receive_timeout=receive_timeout_seconds,
             )
             with service_connection:
                 if not user_search_bases:
@@ -1120,7 +1135,7 @@ def _extract_ldap_member_groups(
                     user=user_dn,
                     password=password,
                     auto_bind=True,
-                    receive_timeout=timeout_seconds,
+                    receive_timeout=receive_timeout_seconds,
                 )
                 with user_connection:
                     target_entry, user_lookup_warnings = _search_first_ldap_entry(
@@ -1271,6 +1286,7 @@ def _verify_endpoint_domain_membership(
         or "(&(objectClass=computer)(|(cn={hostname})(name={hostname})(sAMAccountName={hostname}$)))"
     ).strip()
     timeout_seconds = float(settings.get("timeout_seconds", 5))
+    receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
 
     escaped_hostname = escape_filter_chars(payload.hostname)
     search_filter = search_filter_template.replace("{hostname}", escaped_hostname)
@@ -1284,7 +1300,7 @@ def _verify_endpoint_domain_membership(
         )
         connection_kwargs: dict[str, Any] = {
             "auto_bind": True,
-            "receive_timeout": timeout_seconds,
+            "receive_timeout": receive_timeout_seconds,
         }
         if bind_dn:
             connection_kwargs["user"] = bind_dn
@@ -1408,6 +1424,7 @@ def sync_provider_directory_groups(
         name_attribute = str(settings.get("group_name_attribute") or "cn").strip() or "cn"
         search_filter = str(settings.get("group_search_filter") or "(objectClass=group)").strip() or "(objectClass=group)"
         timeout_seconds = float(settings.get("timeout_seconds", 5))
+        receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
 
         server = _build_ldap_server(
             server_uri=server_uri,
@@ -1416,9 +1433,15 @@ def sync_provider_directory_groups(
             ALL=ALL,
         )
         if bind_dn:
-            connection = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=timeout_seconds)
+            connection = Connection(
+                server,
+                user=bind_dn,
+                password=bind_password,
+                auto_bind=True,
+                receive_timeout=receive_timeout_seconds,
+            )
         else:
-            connection = Connection(server, auto_bind=True, receive_timeout=timeout_seconds)
+            connection = Connection(server, auto_bind=True, receive_timeout=receive_timeout_seconds)
         with connection:
             synced_groups, sync_warnings = _search_ldap_groups_across_bases(
                 connection=connection,
@@ -1492,6 +1515,7 @@ def search_provider_directory_groups(
     bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
     name_attribute = str(settings.get("group_name_attribute") or "cn").strip() or "cn"
     timeout_seconds = float(settings.get("timeout_seconds", 5))
+    receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
 
     try:
         from ldap3 import ALL, SUBTREE, Connection, Server
@@ -1519,9 +1543,15 @@ def search_provider_directory_groups(
             ALL=ALL,
         )
         if bind_dn:
-            connection = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=timeout_seconds)
+            connection = Connection(
+                server,
+                user=bind_dn,
+                password=bind_password,
+                auto_bind=True,
+                receive_timeout=receive_timeout_seconds,
+            )
         else:
-            connection = Connection(server, auto_bind=True, receive_timeout=timeout_seconds)
+            connection = Connection(server, auto_bind=True, receive_timeout=receive_timeout_seconds)
         with connection:
             candidates, search_warnings = _search_ldap_groups_across_bases(
                 connection=connection,
