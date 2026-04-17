@@ -155,6 +155,7 @@ class DirectoryGroupSearchRequest(BaseModel):
     search_base: str | None = Field(default=None, max_length=1024)
     limit: int = Field(default=200, ge=1, le=2000)
     computer_only: bool = False
+    include_containers: bool = True
     persist: bool = False
 
 

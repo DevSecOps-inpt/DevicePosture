@@ -811,6 +811,40 @@ def _normalize_ldap_receive_timeout(timeout_seconds: float | int | str | None) -
     return max(1, value)
 
 
+DEFAULT_LDAP_GROUP_FILTER = "(objectClass=group)"
+LDAP_CONTAINER_OR_OU_FILTER = "(|(objectClass=container)(objectClass=organizationalUnit))"
+
+
+def _coerce_bool(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _escape_ldap_filter_value(value: str) -> str:
+    return re.sub(r"([\\()*\0])", lambda match: "\\" + format(ord(match.group(1)), "02x"), value)
+
+
+def _dedupe_ldap_directory_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in candidates:
+        key = str(item.get("group_key") or "").strip().lower()
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(item)
+    return deduped
+
+
 def _group_candidate_from_ldap_entry(*, entry: Any, name_attribute: str) -> dict[str, Any]:
     entry_json = entry.entry_attributes_as_dict
     candidate_name = (
@@ -882,15 +916,7 @@ def _search_ldap_groups_across_bases(
         except Exception as exc:
             warnings.append(f"{search_base}: {exc}")
 
-    deduped: list[dict[str, Any]] = []
-    seen_keys: set[str] = set()
-    for item in candidates:
-        key = str(item.get("group_key") or "").strip().lower()
-        if not key or key in seen_keys:
-            continue
-        seen_keys.add(key)
-        deduped.append(item)
-    return deduped, warnings
+    return _dedupe_ldap_directory_candidates(candidates), warnings
 
 
 def list_provider_directory_groups(
@@ -1422,7 +1448,8 @@ def sync_provider_directory_groups(
         bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
         bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
         name_attribute = str(settings.get("group_name_attribute") or "cn").strip() or "cn"
-        search_filter = str(settings.get("group_search_filter") or "(objectClass=group)").strip() or "(objectClass=group)"
+        search_filter = str(settings.get("group_search_filter") or DEFAULT_LDAP_GROUP_FILTER).strip() or DEFAULT_LDAP_GROUP_FILTER
+        include_containers = _coerce_bool(settings.get("directory_groups_include_containers"), default=True)
         timeout_seconds = float(settings.get("timeout_seconds", 5))
         receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
 
@@ -1450,8 +1477,19 @@ def sync_provider_directory_groups(
                 name_attribute=name_attribute,
                 search_scope=SUBTREE,
             )
+            if include_containers:
+                container_candidates, container_warnings = _search_ldap_groups_across_bases(
+                    connection=connection,
+                    search_bases=search_bases,
+                    search_filter=LDAP_CONTAINER_OR_OU_FILTER,
+                    name_attribute=name_attribute,
+                    search_scope=SUBTREE,
+                )
+                synced_groups = _dedupe_ldap_directory_candidates([*synced_groups, *container_candidates])
+                if container_warnings:
+                    sync_warnings.extend([f"containers: {item}" for item in container_warnings])
         sync_message = (
-            f"Directory groups synchronized from LDAP ({len(synced_groups)} groups, {len(search_bases)} bases)"
+            f"Directory entries synchronized from LDAP ({len(synced_groups)} entries, {len(search_bases)} bases)"
         )
         if sync_warnings:
             logger.info(
@@ -1481,16 +1519,26 @@ def sync_provider_directory_groups(
 
 
 def _build_group_search_filter(*, ldap_filter: str, search: str | None) -> str:
-    base_filter = ldap_filter.strip() or "(objectClass=group)"
+    base_filter = ldap_filter.strip() or DEFAULT_LDAP_GROUP_FILTER
     if not base_filter.startswith("(") or not base_filter.endswith(")"):
         raise ValueError("LDAP filter must be enclosed in parentheses")
     if not search:
         return base_filter
-    escaped = re.sub(r"([\\()*\0])", lambda match: "\\" + format(ord(match.group(1)), "02x"), search.strip())
+    escaped = _escape_ldap_filter_value(search.strip())
     free_text_filter = (
         f"(|(cn=*{escaped}*)(name=*{escaped}*)(sAMAccountName=*{escaped}*)(distinguishedName=*{escaped}*))"
     )
     return f"(&{base_filter}{free_text_filter})"
+
+
+def _build_container_search_filter(*, search: str | None) -> str:
+    if not search:
+        return LDAP_CONTAINER_OR_OU_FILTER
+    escaped = _escape_ldap_filter_value(search.strip())
+    free_text_filter = (
+        f"(|(cn=*{escaped}*)(name=*{escaped}*)(ou=*{escaped}*)(distinguishedName=*{escaped}*))"
+    )
+    return f"(&{LDAP_CONTAINER_OR_OU_FILTER}{free_text_filter})"
 
 
 def search_provider_directory_groups(
@@ -1514,6 +1562,7 @@ def search_provider_directory_groups(
     bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
     bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
     name_attribute = str(settings.get("group_name_attribute") or "cn").strip() or "cn"
+    include_containers = bool(payload.include_containers)
     timeout_seconds = float(settings.get("timeout_seconds", 5))
     receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
 
@@ -1530,6 +1579,7 @@ def search_provider_directory_groups(
             ldap_filter=payload.ldap_filter,
             search=payload.search,
         )
+        container_search_filter = _build_container_search_filter(search=payload.search)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1561,6 +1611,20 @@ def search_provider_directory_groups(
                 name_attribute=name_attribute,
                 search_scope=SUBTREE,
             )
+            if include_containers:
+                remaining_limit = max(0, payload.limit - len(candidates))
+                if remaining_limit > 0:
+                    container_candidates, container_warnings = _search_ldap_groups_across_bases(
+                        connection=connection,
+                        search_bases=search_bases,
+                        search_filter=container_search_filter,
+                        size_limit=remaining_limit,
+                        name_attribute=name_attribute,
+                        search_scope=SUBTREE,
+                    )
+                    candidates = _dedupe_ldap_directory_candidates([*candidates, *container_candidates])
+                    if container_warnings:
+                        search_warnings.extend([f"containers: {item}" for item in container_warnings])
     except Exception as exc:
         logger.exception("LDAP group search failed provider_id=%s: %s", provider.id, exc)
         raise HTTPException(status_code=502, detail=f"LDAP group search failed ({type(exc).__name__}): {exc}") from exc
@@ -1622,7 +1686,7 @@ def search_provider_directory_groups(
         imported_count=imported_count,
         items=items,
         message=(
-            ("LDAP groups imported into cache" if payload.persist else "LDAP groups preview returned")
+            ("LDAP directory entries imported into cache" if payload.persist else "LDAP directory entries preview returned")
             + (f" ({len(search_warnings)} base warnings)" if search_warnings else "")
         ),
     )
