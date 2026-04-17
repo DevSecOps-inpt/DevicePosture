@@ -63,7 +63,7 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, option
 
   if (!response.ok) {
     const raw = await response.text();
-    if (raw && response.status < 500) {
+    if (raw) {
       try {
         const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
         const detail =
@@ -71,10 +71,12 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, option
             ? parsed.detail
             : typeof parsed.message === "string"
               ? parsed.message
-              : null;
-        throw new Error(detail ?? "Request failed");
+            : null;
+        if (detail) {
+          throw new Error(detail);
+        }
       } catch {
-        throw new Error("Request failed");
+        // Fall through to generic status-based message.
       }
     }
     if (response.status >= 500) {

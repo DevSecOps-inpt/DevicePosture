@@ -684,6 +684,122 @@ def _is_probably_computer_group(*, group_name: str, group_dn: str | None) -> boo
     return any(token in normalized_name for token in ("computer", "workstation", "device", "endpoint"))
 
 
+def _build_group_search_bases(*, settings: dict[str, Any], explicit_search_base: str | None = None) -> list[str]:
+    candidates: list[str] = []
+    if explicit_search_base and explicit_search_base.strip():
+        candidates.append(explicit_search_base.strip())
+
+    configured_group_base = str(settings.get("group_base_dn") or "").strip()
+    configured_base_dn = str(settings.get("base_dn") or "").strip()
+    if configured_group_base:
+        candidates.append(configured_group_base)
+    if configured_base_dn:
+        candidates.append(configured_base_dn)
+
+    raw_extra_bases = settings.get("group_search_bases") or []
+    if isinstance(raw_extra_bases, list):
+        for item in raw_extra_bases:
+            value = str(item or "").strip()
+            if value:
+                candidates.append(value)
+
+    # Include default AD containers so built-in groups are discoverable
+    # even when a narrow base is configured.
+    if configured_base_dn:
+        candidates.extend(
+            [
+                f"CN=Builtin,{configured_base_dn}",
+                f"CN=Users,{configured_base_dn}",
+                f"CN=Computers,{configured_base_dn}",
+            ]
+        )
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        key = item.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item.strip())
+    return deduped
+
+
+def _group_candidate_from_ldap_entry(*, entry: Any, name_attribute: str) -> dict[str, Any]:
+    entry_json = entry.entry_attributes_as_dict
+    candidate_name = (
+        (entry_json.get(name_attribute) or [None])[0]
+        or (entry_json.get("cn") or [None])[0]
+        or (entry_json.get("name") or [None])[0]
+        or str(entry.entry_dn)
+    )
+    group_dn = str(entry.entry_dn).strip().lower()
+    normalized_name = str(candidate_name).strip() or group_dn
+    return {
+        "group_key": group_dn or normalized_name.lower(),
+        "group_name": normalized_name,
+        "group_dn": group_dn or None,
+        "is_computer_group": _is_probably_computer_group(
+            group_name=normalized_name,
+            group_dn=group_dn,
+        ),
+    }
+
+
+def _search_ldap_groups_across_bases(
+    *,
+    connection: Any,
+    search_bases: list[str],
+    search_filter: str,
+    name_attribute: str,
+    size_limit: int | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    candidates: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    remaining = size_limit if isinstance(size_limit, int) and size_limit > 0 else None
+
+    for search_base in search_bases:
+        base_limit = remaining if remaining is not None else 0
+        try:
+            ok = connection.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=[name_attribute, "distinguishedName", "cn", "name", "sAMAccountName"],
+                size_limit=base_limit,
+            )
+            if not ok:
+                result = getattr(connection, "result", {}) or {}
+                result_code = int(result.get("result", 1))
+                # 0 = success, 4 = size limit exceeded (entries are still valid)
+                if result_code not in {0, 4}:
+                    warnings.append(
+                        f"{search_base}: {result.get('description', 'search_failed')}"
+                    )
+                    continue
+
+            for entry in connection.entries:
+                candidates.append(_group_candidate_from_ldap_entry(entry=entry, name_attribute=name_attribute))
+                if remaining is not None:
+                    remaining -= 1
+                    if remaining <= 0:
+                        break
+            if remaining is not None and remaining <= 0:
+                break
+        except Exception as exc:
+            warnings.append(f"{search_base}: {exc}")
+
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in candidates:
+        key = str(item.get("group_key") or "").strip().lower()
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(item)
+    return deduped, warnings
+
+
 def list_provider_directory_groups(
     *,
     db: Session,
@@ -1111,6 +1227,7 @@ def sync_provider_directory_groups(
     *,
     db: Session,
     provider: AuthProviderModel,
+    allow_cache_fallback: bool = False,
 ) -> tuple[list[AuthProviderDirectoryGroupModel], str]:
     if provider.protocol != "ldap":
         raise HTTPException(status_code=422, detail="Directory group sync is currently supported only for LDAP providers")
@@ -1118,6 +1235,7 @@ def sync_provider_directory_groups(
     settings = provider.settings or {}
     synced_groups: list[dict[str, Any]] = []
     sync_message = "Loaded directory groups from provider settings cache"
+    sync_warnings: list[str] = []
 
     try:
         from ldap3 import ALL, SUBTREE, Connection, Server
@@ -1125,8 +1243,8 @@ def sync_provider_directory_groups(
         server_uri = str(settings.get("server_uri") or "").strip()
         if not server_uri:
             raise ValueError("Missing LDAP server_uri")
-        search_base = str(settings.get("group_base_dn") or settings.get("base_dn") or "").strip()
-        if not search_base:
+        search_bases = _build_group_search_bases(settings=settings)
+        if not search_bases:
             raise ValueError("Missing LDAP base_dn/group_base_dn")
         bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
         bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
@@ -1140,35 +1258,31 @@ def sync_provider_directory_groups(
         else:
             connection = Connection(server, auto_bind=True, receive_timeout=timeout_seconds)
         with connection:
-            connection.search(
-                search_base=search_base,
+            synced_groups, sync_warnings = _search_ldap_groups_across_bases(
+                connection=connection,
+                search_bases=search_bases,
                 search_filter=search_filter,
-                search_scope=SUBTREE,
-                attributes=[name_attribute, "distinguishedName", "cn"],
+                name_attribute=name_attribute,
             )
-            for entry in connection.entries:
-                entry_json = entry.entry_attributes_as_dict
-                candidate_name = (
-                    (entry_json.get(name_attribute) or [None])[0]
-                    or (entry_json.get("cn") or [None])[0]
-                    or str(entry.entry_dn)
-                )
-                group_dn = str(entry.entry_dn).strip().lower()
-                synced_groups.append(
-                    {
-                        "group_key": group_dn or str(candidate_name).strip().lower(),
-                        "group_name": str(candidate_name).strip(),
-                        "group_dn": group_dn or None,
-                        "is_computer_group": _is_probably_computer_group(
-                            group_name=str(candidate_name).strip(),
-                            group_dn=group_dn,
-                        ),
-                    }
-                )
-        sync_message = "Directory groups synchronized from LDAP"
+        sync_message = (
+            f"Directory groups synchronized from LDAP ({len(synced_groups)} groups, {len(search_bases)} bases)"
+        )
+        if sync_warnings:
+            logger.info(
+                "provider_id=%s LDAP group sync warnings: %s",
+                provider.id,
+                "; ".join(sync_warnings),
+            )
     except Exception as exc:
         logger.warning("failed to sync LDAP directory groups provider_id=%s: %s", provider.id, exc)
+        if not allow_cache_fallback:
+            raise HTTPException(status_code=502, detail=f"LDAP live sync failed: {exc}") from exc
         synced_groups = _groups_from_provider_settings(settings)
+        if not synced_groups:
+            raise HTTPException(
+                status_code=502,
+                detail=f"LDAP live sync failed and no cached groups are available: {exc}",
+            ) from exc
         sync_message = f"LDAP live sync failed, using cached/test groups: {exc}"
 
     updated_groups = replace_provider_directory_groups(db=db, provider=provider, groups=synced_groups)
@@ -1206,8 +1320,9 @@ def search_provider_directory_groups(
     server_uri = str(settings.get("server_uri") or "").strip()
     if not server_uri:
         raise HTTPException(status_code=422, detail="LDAP provider is missing server_uri")
-    search_base = str(payload.search_base or settings.get("group_base_dn") or settings.get("base_dn") or "").strip()
-    if not search_base:
+    search_base = str(payload.search_base or "").strip()
+    search_bases = _build_group_search_bases(settings=settings, explicit_search_base=search_base)
+    if not search_bases:
         raise HTTPException(status_code=422, detail="LDAP provider is missing base_dn/group_base_dn")
 
     bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
@@ -1229,6 +1344,7 @@ def search_provider_directory_groups(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     candidates: list[dict[str, Any]] = []
+    search_warnings: list[str] = []
     try:
         server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
         if bind_dn:
@@ -1236,38 +1352,24 @@ def search_provider_directory_groups(
         else:
             connection = Connection(server, auto_bind=True, receive_timeout=timeout_seconds)
         with connection:
-            connection.search(
-                search_base=search_base,
+            candidates, search_warnings = _search_ldap_groups_across_bases(
+                connection=connection,
+                search_bases=search_bases,
                 search_filter=search_filter,
-                search_scope=SUBTREE,
-                attributes=[name_attribute, "distinguishedName", "cn", "name", "sAMAccountName"],
                 size_limit=payload.limit,
+                name_attribute=name_attribute,
             )
-            for entry in connection.entries:
-                entry_json = entry.entry_attributes_as_dict
-                candidate_name = (
-                    (entry_json.get(name_attribute) or [None])[0]
-                    or (entry_json.get("cn") or [None])[0]
-                    or (entry_json.get("name") or [None])[0]
-                    or str(entry.entry_dn)
-                )
-                group_dn = str(entry.entry_dn).strip().lower()
-                candidates.append(
-                    {
-                        "group_key": group_dn or str(candidate_name).strip().lower(),
-                        "group_name": str(candidate_name).strip() or group_dn,
-                        "group_dn": group_dn or None,
-                        "is_computer_group": _is_probably_computer_group(
-                            group_name=str(candidate_name).strip(),
-                            group_dn=group_dn,
-                        ),
-                    }
-                )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LDAP group search failed: {exc}") from exc
 
     if payload.computer_only:
         candidates = [item for item in candidates if bool(item.get("is_computer_group"))]
+    if search_warnings:
+        logger.info(
+            "provider_id=%s LDAP group search warnings: %s",
+            provider.id,
+            "; ".join(search_warnings),
+        )
 
     existing = db.scalars(
         select(AuthProviderDirectoryGroupModel).where(AuthProviderDirectoryGroupModel.provider_id == provider.id)
@@ -1311,14 +1413,14 @@ def search_provider_directory_groups(
         provider_id=provider.id,
         provider_name=provider.name,
         search_filter=search_filter,
-        search_base=search_base,
+        search_base=", ".join(search_bases),
         search=payload.search,
         matched_count=len(items),
         imported_count=imported_count,
         items=items,
         message=(
-            "LDAP groups imported into cache" if payload.persist
-            else "LDAP groups preview returned"
+            ("LDAP groups imported into cache" if payload.persist else "LDAP groups preview returned")
+            + (f" ({len(search_warnings)} base warnings)" if search_warnings else "")
         ),
     )
 
