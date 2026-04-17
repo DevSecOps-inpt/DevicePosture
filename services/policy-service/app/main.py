@@ -845,6 +845,21 @@ def _dedupe_ldap_directory_candidates(candidates: list[dict[str, Any]]) -> list[
     return deduped
 
 
+def _dedupe_strings(items: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        value = str(item or "").strip()
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+
 def _build_well_known_ad_container_dns(*, settings: dict[str, Any]) -> list[str]:
     base_dn = str(settings.get("base_dn") or "").strip()
     if not base_dn:
