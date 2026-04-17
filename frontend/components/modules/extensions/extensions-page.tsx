@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { KeyRound, Link2, Plus, RefreshCcw, ShieldCheck } from "lucide-react";
+import { KeyRound, Link2, Plus, RefreshCcw, Search, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AuthProvider, DirectoryGroup, ProviderTestResult } from "@/types/platform";
+import type { AuthProvider, DirectoryGroup, DirectoryGroupSearchResponse, ProviderTestResult } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -38,6 +38,8 @@ function defaultSettings(protocol: ProviderProtocol): Record<string, unknown> {
       base_dn: "",
       user_search_base: "",
       group_base_dn: "",
+      group_search_filter: "(objectClass=group)",
+      group_name_attribute: "cn",
       bind_dn: "",
       bind_password: "",
       timeout_seconds: 5,
@@ -123,6 +125,15 @@ export function ExtensionsPage() {
   const [connectivityByProvider, setConnectivityByProvider] = useState<Record<number, ProviderTestResult>>({});
   const [directoryGroupsByProvider, setDirectoryGroupsByProvider] = useState<Record<number, DirectoryGroup[]>>({});
   const [syncingProviderIds, setSyncingProviderIds] = useState<number[]>([]);
+  const [groupBrowserOpen, setGroupBrowserOpen] = useState(false);
+  const [groupBrowserProvider, setGroupBrowserProvider] = useState<AuthProvider | null>(null);
+  const [groupBrowserFilter, setGroupBrowserFilter] = useState("(objectClass=group)");
+  const [groupBrowserSearch, setGroupBrowserSearch] = useState("");
+  const [groupBrowserBase, setGroupBrowserBase] = useState("");
+  const [groupBrowserLimit, setGroupBrowserLimit] = useState("200");
+  const [groupBrowserComputerOnly, setGroupBrowserComputerOnly] = useState(false);
+  const [groupBrowserLoading, setGroupBrowserLoading] = useState(false);
+  const [groupBrowserResult, setGroupBrowserResult] = useState<DirectoryGroupSearchResponse | null>(null);
 
   const loadProviders = async () => {
     setLoading(true);
@@ -157,6 +168,53 @@ export function ExtensionsPage() {
   useEffect(() => {
     void loadProviders();
   }, []);
+
+  const openGroupBrowser = (provider: AuthProvider) => {
+    setGroupBrowserProvider(provider);
+    setGroupBrowserFilter(String(provider.settings.group_search_filter ?? "(objectClass=group)"));
+    setGroupBrowserSearch("");
+    setGroupBrowserBase(String(provider.settings.group_base_dn ?? provider.settings.base_dn ?? ""));
+    setGroupBrowserLimit("200");
+    setGroupBrowserComputerOnly(false);
+    setGroupBrowserResult(null);
+    setGroupBrowserOpen(true);
+  };
+
+  const runGroupBrowserSearch = async (persist: boolean) => {
+    if (!groupBrowserProvider) {
+      return;
+    }
+    setGroupBrowserLoading(true);
+    try {
+      const payload = {
+        ldap_filter: groupBrowserFilter.trim() || "(objectClass=group)",
+        search: groupBrowserSearch.trim() || null,
+        search_base: groupBrowserBase.trim() || null,
+        limit: Math.max(1, Math.min(2000, Number(groupBrowserLimit) || 200)),
+        computer_only: groupBrowserComputerOnly,
+        persist
+      };
+      const result = await api.searchAuthProviderDirectoryGroups(groupBrowserProvider.id, payload);
+      setGroupBrowserResult(result);
+      if (persist) {
+        const groups = await api.listAuthProviderDirectoryGroups(groupBrowserProvider.id);
+        setDirectoryGroupsByProvider((current) => ({ ...current, [groupBrowserProvider.id]: groups }));
+      }
+      pushToast({
+        tone: "success",
+        title: persist ? "Group results imported" : "LDAP search completed",
+        description: `${result.matched_count} matched, ${result.imported_count} imported`
+      });
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "LDAP group search failed",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    } finally {
+      setGroupBrowserLoading(false);
+    }
+  };
 
   const installed = useMemo(() => providers.filter((item) => item.is_enabled), [providers]);
   const inputClassName =
@@ -201,6 +259,28 @@ export function ExtensionsPage() {
                 value={String(draft.settings.group_base_dn ?? "")}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, settings: { ...current.settings, group_base_dn: event.target.value } }))
+                }
+                className={inputClassName}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Group search filter</span>
+              <input
+                value={String(draft.settings.group_search_filter ?? "")}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, settings: { ...current.settings, group_search_filter: event.target.value } }))
+                }
+                className={inputClassName}
+              />
+            </label>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Group name attribute</span>
+              <input
+                value={String(draft.settings.group_name_attribute ?? "")}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, settings: { ...current.settings, group_name_attribute: event.target.value } }))
                 }
                 className={inputClassName}
               />
@@ -475,6 +555,15 @@ export function ExtensionsPage() {
                     {provider.protocol === "ldap" ? (
                       <Button
                         variant="secondary"
+                        onClick={() => openGroupBrowser(provider)}
+                      >
+                        <Search className="mr-2 h-4 w-4" />
+                        Browse groups
+                      </Button>
+                    ) : null}
+                    {provider.protocol === "ldap" ? (
+                      <Button
+                        variant="secondary"
                         onClick={async () => {
                           setSyncingProviderIds((current) => [...current, provider.id]);
                           try {
@@ -540,6 +629,120 @@ export function ExtensionsPage() {
           ))}
         </div>
       )}
+
+      <Modal
+        open={groupBrowserOpen}
+        title={groupBrowserProvider ? `Browse LDAP groups: ${groupBrowserProvider.name}` : "Browse LDAP groups"}
+        description="Search AD groups using a custom LDAP filter, similar to FortiGate group browsing."
+        onClose={() => setGroupBrowserOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setGroupBrowserOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void runGroupBrowserSearch(false)}
+              disabled={!groupBrowserProvider || groupBrowserLoading}
+            >
+              <Search className="mr-2 h-4 w-4" />
+              {groupBrowserLoading ? "Searching..." : "Search"}
+            </Button>
+            <Button
+              onClick={() => void runGroupBrowserSearch(true)}
+              disabled={!groupBrowserProvider || groupBrowserLoading}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Import results
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Custom LDAP filter</span>
+              <input
+                value={groupBrowserFilter}
+                onChange={(event) => setGroupBrowserFilter(event.target.value)}
+                className={inputClassName}
+                placeholder="(objectClass=group)"
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Search text</span>
+              <input
+                value={groupBrowserSearch}
+                onChange={(event) => setGroupBrowserSearch(event.target.value)}
+                className={inputClassName}
+                placeholder="domain admins"
+              />
+            </label>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Search base (optional override)</span>
+              <input
+                value={groupBrowserBase}
+                onChange={(event) => setGroupBrowserBase(event.target.value)}
+                className={inputClassName}
+                placeholder="DC=example,DC=local"
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Result limit</span>
+              <input
+                value={groupBrowserLimit}
+                onChange={(event) => setGroupBrowserLimit(event.target.value)}
+                className={inputClassName}
+              />
+            </label>
+          </div>
+          <label className="flex items-center gap-3 rounded-xl border border-border bg-slate-900 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={groupBrowserComputerOnly}
+              onChange={(event) => setGroupBrowserComputerOnly(event.target.checked)}
+            />
+            <span className="text-sm text-slate-300">Computer-related groups only</span>
+          </label>
+
+          {groupBrowserResult ? (
+            <div className="grid gap-3 rounded-xl border border-border bg-slate-900/30 p-3">
+              <p className="text-xs text-slate-400">
+                {groupBrowserResult.message} | matched: {groupBrowserResult.matched_count} | imported: {groupBrowserResult.imported_count}
+              </p>
+              <p className="text-xs text-slate-500">
+                Effective filter: {groupBrowserResult.search_filter}
+              </p>
+              <div className="max-h-72 overflow-auto rounded-lg border border-border">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-900/80 text-xs uppercase tracking-[0.12em] text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2">Group</th>
+                      <th className="px-3 py-2">DN</th>
+                      <th className="px-3 py-2">Cached</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupBrowserResult.items.map((item) => (
+                      <tr key={item.group_key} className="border-t border-border/60">
+                        <td className="px-3 py-2 text-slate-100">{item.group_name}</td>
+                        <td className="px-3 py-2 text-xs text-slate-400">{item.group_dn ?? "-"}</td>
+                        <td className="px-3 py-2 text-xs text-slate-300">{item.already_cached ? "yes" : "no"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Run search to preview LDAP groups, then import results into the local cache.
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         open={editorOpen}

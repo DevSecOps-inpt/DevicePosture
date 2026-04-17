@@ -6,6 +6,7 @@ import type {
   ComplianceDecision,
   ConditionGroup,
   DirectoryGroup,
+  DirectoryGroupSearchResponse,
   EndpointSummary,
   EnforcementResult,
   IpGroup,
@@ -558,6 +559,23 @@ export const api = {
   syncAuthProviderDirectoryGroups(providerId: number) {
     return fetchJson<DirectoryGroup[]>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}/directory-groups/sync`, {
       method: "POST"
+    });
+  },
+
+  searchAuthProviderDirectoryGroups(
+    providerId: number,
+    payload: {
+      ldap_filter: string;
+      search?: string | null;
+      search_base?: string | null;
+      limit?: number;
+      computer_only?: boolean;
+      persist?: boolean;
+    }
+  ) {
+    return fetchJson<DirectoryGroupSearchResponse>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}/directory-groups/search`, {
+      method: "POST",
+      body: JSON.stringify(payload)
     });
   },
 

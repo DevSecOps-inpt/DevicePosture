@@ -149,6 +149,36 @@ class DirectoryGroupResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DirectoryGroupSearchRequest(BaseModel):
+    ldap_filter: str = Field(default="(objectClass=group)", min_length=1, max_length=1024)
+    search: str | None = Field(default=None, max_length=255)
+    search_base: str | None = Field(default=None, max_length=1024)
+    limit: int = Field(default=200, ge=1, le=2000)
+    computer_only: bool = False
+    persist: bool = False
+
+
+class DirectoryGroupSearchItem(BaseModel):
+    id: int | None = None
+    group_key: str
+    group_name: str
+    group_dn: str | None = None
+    is_computer_group: bool = False
+    already_cached: bool = False
+
+
+class DirectoryGroupSearchResponse(BaseModel):
+    provider_id: int
+    provider_name: str
+    search_filter: str
+    search_base: str
+    search: str | None = None
+    matched_count: int
+    imported_count: int
+    items: list[DirectoryGroupSearchItem] = Field(default_factory=list)
+    message: str
+
+
 class ProviderConnectivityResult(BaseModel):
     ok: bool
     message: str

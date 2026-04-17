@@ -255,6 +255,27 @@ export interface DirectoryGroup {
   updated_at: string;
 }
 
+export interface DirectoryGroupSearchItem {
+  id: number | null;
+  group_key: string;
+  group_name: string;
+  group_dn: string | null;
+  is_computer_group: boolean;
+  already_cached: boolean;
+}
+
+export interface DirectoryGroupSearchResponse {
+  provider_id: number;
+  provider_name: string;
+  search_filter: string;
+  search_base: string;
+  search: string | null;
+  matched_count: number;
+  imported_count: number;
+  items: DirectoryGroupSearchItem[];
+  message: string;
+}
+
 export interface ProviderTestResult {
   ok: boolean;
   message: string;

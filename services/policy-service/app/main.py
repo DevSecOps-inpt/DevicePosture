@@ -42,6 +42,9 @@ from app.schemas import (
     ConditionGroupResponse,
     ConditionGroupUpdate,
     DirectoryGroupResponse,
+    DirectoryGroupSearchItem,
+    DirectoryGroupSearchRequest,
+    DirectoryGroupSearchResponse,
     EndpointAssignedPolicyResponse,
     EndpointDomainVerificationRequest,
     EndpointDomainVerificationResponse,
@@ -699,6 +702,7 @@ def replace_provider_directory_groups(
     db: Session,
     provider: AuthProviderModel,
     groups: list[dict[str, Any]],
+    clear_missing: bool = True,
 ) -> list[AuthProviderDirectoryGroupModel]:
     existing = db.scalars(
         select(AuthProviderDirectoryGroupModel).where(AuthProviderDirectoryGroupModel.provider_id == provider.id)
@@ -729,10 +733,11 @@ def replace_provider_directory_groups(
             }
         )
 
-    kept_keys = {item["group_key"] for item in normalized_payload}
-    for item in existing:
-        if item.group_key not in kept_keys:
-            db.delete(item)
+    if clear_missing:
+        kept_keys = {item["group_key"] for item in normalized_payload}
+        for item in existing:
+            if item.group_key not in kept_keys:
+                db.delete(item)
 
     for payload in normalized_payload:
         item = existing_by_key.get(payload["group_key"])
@@ -1173,6 +1178,149 @@ def sync_provider_directory_groups(
     provider.settings = provider_settings
     db.flush()
     return updated_groups, sync_message
+
+
+def _build_group_search_filter(*, ldap_filter: str, search: str | None) -> str:
+    base_filter = ldap_filter.strip() or "(objectClass=group)"
+    if not base_filter.startswith("(") or not base_filter.endswith(")"):
+        raise ValueError("LDAP filter must be enclosed in parentheses")
+    if not search:
+        return base_filter
+    escaped = re.sub(r"([\\()*\0])", lambda match: "\\" + format(ord(match.group(1)), "02x"), search.strip())
+    free_text_filter = (
+        f"(|(cn=*{escaped}*)(name=*{escaped}*)(sAMAccountName=*{escaped}*)(distinguishedName=*{escaped}*))"
+    )
+    return f"(&{base_filter}{free_text_filter})"
+
+
+def search_provider_directory_groups(
+    *,
+    db: Session,
+    provider: AuthProviderModel,
+    payload: DirectoryGroupSearchRequest,
+) -> DirectoryGroupSearchResponse:
+    if provider.protocol != "ldap":
+        raise HTTPException(status_code=422, detail="Directory group search is supported only for LDAP providers")
+
+    settings = provider.settings or {}
+    server_uri = str(settings.get("server_uri") or "").strip()
+    if not server_uri:
+        raise HTTPException(status_code=422, detail="LDAP provider is missing server_uri")
+    search_base = str(payload.search_base or settings.get("group_base_dn") or settings.get("base_dn") or "").strip()
+    if not search_base:
+        raise HTTPException(status_code=422, detail="LDAP provider is missing base_dn/group_base_dn")
+
+    bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
+    bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
+    name_attribute = str(settings.get("group_name_attribute") or "cn").strip() or "cn"
+    timeout_seconds = float(settings.get("timeout_seconds", 5))
+
+    try:
+        from ldap3 import ALL, SUBTREE, Connection, Server
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"ldap3 dependency is missing: {exc}") from exc
+
+    try:
+        search_filter = _build_group_search_filter(
+            ldap_filter=payload.ldap_filter,
+            search=payload.search,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    candidates: list[dict[str, Any]] = []
+    try:
+        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        if bind_dn:
+            connection = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=timeout_seconds)
+        else:
+            connection = Connection(server, auto_bind=True, receive_timeout=timeout_seconds)
+        with connection:
+            connection.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=[name_attribute, "distinguishedName", "cn", "name", "sAMAccountName"],
+                size_limit=payload.limit,
+            )
+            for entry in connection.entries:
+                entry_json = entry.entry_attributes_as_dict
+                candidate_name = (
+                    (entry_json.get(name_attribute) or [None])[0]
+                    or (entry_json.get("cn") or [None])[0]
+                    or (entry_json.get("name") or [None])[0]
+                    or str(entry.entry_dn)
+                )
+                group_dn = str(entry.entry_dn).strip().lower()
+                candidates.append(
+                    {
+                        "group_key": group_dn or str(candidate_name).strip().lower(),
+                        "group_name": str(candidate_name).strip() or group_dn,
+                        "group_dn": group_dn or None,
+                        "is_computer_group": _is_probably_computer_group(
+                            group_name=str(candidate_name).strip(),
+                            group_dn=group_dn,
+                        ),
+                    }
+                )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LDAP group search failed: {exc}") from exc
+
+    if payload.computer_only:
+        candidates = [item for item in candidates if bool(item.get("is_computer_group"))]
+
+    existing = db.scalars(
+        select(AuthProviderDirectoryGroupModel).where(AuthProviderDirectoryGroupModel.provider_id == provider.id)
+    ).all()
+    existing_by_key = {item.group_key: item for item in existing}
+
+    imported_count = 0
+    if payload.persist and candidates:
+        updated_groups = replace_provider_directory_groups(
+            db=db,
+            provider=provider,
+            groups=candidates,
+            clear_missing=False,
+        )
+        db.flush()
+        refreshed_by_key = {item.group_key: item for item in updated_groups}
+        imported_count = sum(1 for item in candidates if item.get("group_key") in refreshed_by_key and item.get("group_key") not in existing_by_key)
+        provider_settings = dict(settings)
+        provider_settings["directory_groups_last_search"] = datetime.now(timezone.utc).isoformat()
+        provider_settings["directory_groups_last_search_count"] = len(candidates)
+        provider.settings = provider_settings
+        db.commit()
+        existing_by_key = {item.group_key: item for item in updated_groups}
+
+    items: list[DirectoryGroupSearchItem] = []
+    for item in candidates:
+        key = str(item.get("group_key") or "").strip()
+        cached = existing_by_key.get(key)
+        items.append(
+            DirectoryGroupSearchItem(
+                id=cached.id if cached else None,
+                group_key=key,
+                group_name=str(item.get("group_name") or key),
+                group_dn=item.get("group_dn"),
+                is_computer_group=bool(item.get("is_computer_group")),
+                already_cached=cached is not None,
+            )
+        )
+
+    return DirectoryGroupSearchResponse(
+        provider_id=provider.id,
+        provider_name=provider.name,
+        search_filter=search_filter,
+        search_base=search_base,
+        search=payload.search,
+        matched_count=len(items),
+        imported_count=imported_count,
+        items=items,
+        message=(
+            "LDAP groups imported into cache" if payload.persist
+            else "LDAP groups preview returned"
+        ),
+    )
 
 
 def provider_connectivity_check(provider: AuthProviderModel) -> ProviderConnectivityResult:
@@ -2028,6 +2176,23 @@ def sync_auth_provider_directory_groups(
     groups, _ = sync_provider_directory_groups(db=db, provider=provider)
     db.commit()
     return [DirectoryGroupResponse.model_validate(item) for item in groups]
+
+
+@app.post("/auth/providers/{provider_id}/directory-groups/search", response_model=DirectoryGroupSearchResponse)
+def search_auth_provider_directory_groups(
+    provider_id: int,
+    payload: DirectoryGroupSearchRequest,
+    _: UserAccountModel = Depends(get_session_user),
+    db: Session = Depends(get_db),
+) -> DirectoryGroupSearchResponse:
+    provider = db.get(AuthProviderModel, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Auth provider not found")
+    return search_provider_directory_groups(
+        db=db,
+        provider=provider,
+        payload=payload,
+    )
 
 
 @app.get("/auth/directory-groups/ldap", response_model=list[DirectoryGroupResponse])
