@@ -244,6 +244,17 @@ export interface AuthProvider {
   updated_at: string;
 }
 
+export interface DirectoryGroup {
+  id: number;
+  provider_id: number;
+  group_key: string;
+  group_name: string;
+  group_dn: string | null;
+  is_computer_group: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProviderTestResult {
   ok: boolean;
   message: string;
@@ -257,6 +268,7 @@ export interface UserAccount {
   email: string | null;
   is_active: boolean;
   auth_source: AuthProtocol;
+  external_provider_id: number | null;
   external_subject: string | null;
   external_groups: string[];
   roles: string[];

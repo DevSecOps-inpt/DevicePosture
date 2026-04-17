@@ -8,6 +8,7 @@ import type {
   AdapterConfig,
   AuthProvider,
   ConditionGroup,
+  DirectoryGroup,
   EndpointSummary,
   IpGroup,
   Policy,
@@ -48,6 +49,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
   const [formState, setFormState] = useState<PolicyEditorState>(defaultPolicyEditorState());
   const [conditionGroups, setConditionGroups] = useState<ConditionGroup[]>([]);
   const [ldapProviders, setLdapProviders] = useState<AuthProvider[]>([]);
+  const [ldapDirectoryGroups, setLdapDirectoryGroups] = useState<DirectoryGroup[]>([]);
   const [adapterProfiles, setAdapterProfiles] = useState<AdapterConfig[]>([]);
   const [ipGroups, setIpGroups] = useState<IpGroup[]>([]);
 
@@ -83,9 +85,18 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
       }
       setConditionGroups(groups);
       setAdapterProfiles(adapters);
-      setLdapProviders(
-        enabledProviders.filter((item) => item.protocol === "ldap" && item.is_enabled)
+      const enabledLdapProviders = enabledProviders.filter(
+        (item) => item.protocol === "ldap" && item.is_enabled
       );
+      setLdapProviders(enabledLdapProviders);
+      if (enabledLdapProviders.length > 0) {
+        const directoryGroups = await api.listLdapDirectoryGroups({
+          providerIds: enabledLdapProviders.map((item) => item.id)
+        }).catch(() => []);
+        setLdapDirectoryGroups(directoryGroups);
+      } else {
+        setLdapDirectoryGroups([]);
+      }
       setIpGroups(
         groupsForExecutionGate.map((group) => ({
           id: group.group_id,
@@ -302,6 +313,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
               onChange={setFormState}
               conditionGroups={conditionGroups}
               ldapProviders={ldapProviders}
+              ldapDirectoryGroups={ldapDirectoryGroups}
             />
             <PolicyExecutionSection
               value={formState}

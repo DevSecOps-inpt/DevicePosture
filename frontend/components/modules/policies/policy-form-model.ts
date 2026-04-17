@@ -69,6 +69,8 @@ export type PolicyEditorState = {
     domainMembershipEnabled: boolean;
     domainMembershipOperator: MembershipOperator;
     domainLdapProviderId: number | "";
+    domainRequiredGroupIds: number[];
+    domainRequiredGroupDns: string[];
   };
   execution: {
     adapter: string;
@@ -114,7 +116,9 @@ export function defaultPolicyEditorState(): PolicyEditorState {
       antivirusStatusValues: "running",
       domainMembershipEnabled: false,
       domainMembershipOperator: "exists in",
-      domainLdapProviderId: ""
+      domainLdapProviderId: "",
+      domainRequiredGroupIds: [],
+      domainRequiredGroupDns: []
     },
     execution: {
       adapter: "fortigate",
@@ -260,6 +264,23 @@ function parseGroupId(value: unknown): number | "" {
     return Number.parseInt(value.trim(), 10);
   }
   return "";
+}
+
+function parseGroupIds(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const parsed: number[] = [];
+  for (const item of value) {
+    if (typeof item === "number" && Number.isInteger(item)) {
+      parsed.push(item);
+      continue;
+    }
+    if (typeof item === "string" && /^\d+$/.test(item.trim())) {
+      parsed.push(Number.parseInt(item.trim(), 10));
+    }
+  }
+  return parsed;
 }
 
 function normalizeMembershipOperator(operator: string | undefined): MembershipOperator {
@@ -416,6 +437,14 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
       if (typeof condition.value === "object" && condition.value !== null) {
         const raw = condition.value as Record<string, unknown>;
         state.conditions.domainLdapProviderId = parseGroupId(raw.provider_id);
+        state.conditions.domainRequiredGroupIds = parseGroupIds(raw.required_group_ids);
+        if (Array.isArray(raw.required_group_dns)) {
+          state.conditions.domainRequiredGroupDns = raw.required_group_dns
+            .map((item) => String(item).trim().toLowerCase())
+            .filter(Boolean);
+        } else {
+          state.conditions.domainRequiredGroupDns = [];
+        }
       }
       continue;
     }
@@ -594,13 +623,19 @@ export function buildPolicyConditions(state: PolicyEditorState): PolicyCondition
   }
 
   if (state.conditions.domainMembershipEnabled && state.conditions.domainLdapProviderId !== "") {
+    const value: Record<string, unknown> = {
+      provider_id: state.conditions.domainLdapProviderId
+    };
+    if (state.conditions.domainRequiredGroupIds.length > 0) {
+      value.required_group_ids = state.conditions.domainRequiredGroupIds;
+    } else if (state.conditions.domainRequiredGroupDns.length > 0) {
+      value.required_group_dns = state.conditions.domainRequiredGroupDns;
+    }
     conditions.push({
       type: "domain_membership",
       field: "domain.joined",
       operator: state.conditions.domainMembershipOperator,
-      value: {
-        provider_id: state.conditions.domainLdapProviderId
-      }
+      value
     });
   }
 
@@ -763,7 +798,9 @@ function emptyPolicyEditorStateForExistingPolicy(): PolicyEditorState {
       antivirusStatusValues: "",
       domainMembershipEnabled: false,
       domainMembershipOperator: "exists in",
-      domainLdapProviderId: ""
+      domainLdapProviderId: "",
+      domainRequiredGroupIds: [],
+      domainRequiredGroupDns: []
     },
     execution: {
       adapter: "fortigate",

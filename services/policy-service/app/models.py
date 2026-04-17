@@ -67,6 +67,19 @@ class AuthProviderModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class AuthProviderDirectoryGroupModel(Base):
+    __tablename__ = "auth_provider_directory_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("auth_providers.id"), index=True)
+    group_key: Mapped[str] = mapped_column(String(255), index=True)
+    group_name: Mapped[str] = mapped_column(String(255), index=True)
+    group_dn: Mapped[str | None] = mapped_column(String(1024), nullable=True, index=True)
+    is_computer_group: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class UserAccountModel(Base):
     __tablename__ = "user_accounts"
 
@@ -76,6 +89,7 @@ class UserAccountModel(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     auth_source: Mapped[str] = mapped_column(String(32), default="local", index=True)
+    external_provider_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     local_password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
     external_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     external_groups: Mapped[list[str]] = mapped_column(JSON, default=list)

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { KeyRound, Link2, Plus, RefreshCcw, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AuthProvider, ProviderTestResult } from "@/types/platform";
+import type { AuthProvider, DirectoryGroup, ProviderTestResult } from "@/types/platform";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -36,7 +36,10 @@ function defaultSettings(protocol: ProviderProtocol): Record<string, unknown> {
     return {
       server_uri: "ldap://127.0.0.1:389",
       base_dn: "",
-      bind_dn_template: "uid={username},ou=people,dc=example,dc=local",
+      user_search_base: "",
+      group_base_dn: "",
+      bind_dn: "",
+      bind_password: "",
       timeout_seconds: 5,
       accept_all_credentials_for_testing: false
     };
@@ -118,12 +121,28 @@ export function ExtensionsPage() {
   const [testUser, setTestUser] = useState("");
   const [testPassword, setTestPassword] = useState("");
   const [connectivityByProvider, setConnectivityByProvider] = useState<Record<number, ProviderTestResult>>({});
+  const [directoryGroupsByProvider, setDirectoryGroupsByProvider] = useState<Record<number, DirectoryGroup[]>>({});
+  const [syncingProviderIds, setSyncingProviderIds] = useState<number[]>([]);
 
   const loadProviders = async () => {
     setLoading(true);
     try {
       const items = await api.listAuthProviders();
       setProviders(items);
+      const ldapProviderIds = items.filter((item) => item.protocol === "ldap").map((item) => item.id);
+      if (ldapProviderIds.length > 0) {
+        const groups = await api.listLdapDirectoryGroups({ providerIds: ldapProviderIds }).catch(() => []);
+        const grouped: Record<number, DirectoryGroup[]> = {};
+        for (const group of groups) {
+          if (!grouped[group.provider_id]) {
+            grouped[group.provider_id] = [];
+          }
+          grouped[group.provider_id].push(group);
+        }
+        setDirectoryGroupsByProvider(grouped);
+      } else {
+        setDirectoryGroupsByProvider({});
+      }
     } catch (error) {
       pushToast({
         tone: "error",
@@ -165,16 +184,49 @@ export function ExtensionsPage() {
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-slate-300">Bind DN template</span>
+              <span className="text-sm text-slate-300">User search base (optional)</span>
               <input
-                value={String(draft.settings.bind_dn_template ?? "")}
+                value={String(draft.settings.user_search_base ?? "")}
                 onChange={(event) =>
-                  setDraft((current) => ({ ...current, settings: { ...current.settings, bind_dn_template: event.target.value } }))
+                  setDraft((current) => ({ ...current, settings: { ...current.settings, user_search_base: event.target.value } }))
                 }
                 className={inputClassName}
               />
             </label>
           </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Group search base (optional)</span>
+              <input
+                value={String(draft.settings.group_base_dn ?? "")}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, settings: { ...current.settings, group_base_dn: event.target.value } }))
+                }
+                className={inputClassName}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Service account DN</span>
+              <input
+                value={String(draft.settings.bind_dn ?? "")}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, settings: { ...current.settings, bind_dn: event.target.value } }))
+                }
+                className={inputClassName}
+              />
+            </label>
+          </div>
+          <label className="space-y-2">
+            <span className="text-sm text-slate-300">Service account password</span>
+            <input
+              type="password"
+              value={String(draft.settings.bind_password ?? "")}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, settings: { ...current.settings, bind_password: event.target.value } }))
+              }
+              className={inputClassName}
+            />
+          </label>
         </div>
       );
     }
@@ -380,6 +432,11 @@ export function ExtensionsPage() {
                   <p className="text-sm text-slate-400">
                     Priority: {provider.priority} | {provider.is_enabled ? "Enabled" : "Disabled"}
                   </p>
+                  {provider.protocol === "ldap" ? (
+                    <p className="text-xs text-slate-500">
+                      Cached LDAP groups: {directoryGroupsByProvider[provider.id]?.length ?? 0}
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="secondary"
@@ -415,6 +472,35 @@ export function ExtensionsPage() {
                       <ShieldCheck className="mr-2 h-4 w-4" />
                       Test connectivity
                     </Button>
+                    {provider.protocol === "ldap" ? (
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          setSyncingProviderIds((current) => [...current, provider.id]);
+                          try {
+                            const groups = await api.syncAuthProviderDirectoryGroups(provider.id);
+                            setDirectoryGroupsByProvider((current) => ({ ...current, [provider.id]: groups }));
+                            pushToast({
+                              tone: "success",
+                              title: "LDAP groups synchronized",
+                              description: `${groups.length} groups loaded`
+                            });
+                          } catch (error) {
+                            pushToast({
+                              tone: "error",
+                              title: "LDAP sync failed",
+                              description: error instanceof Error ? error.message : "Unknown error"
+                            });
+                          } finally {
+                            setSyncingProviderIds((current) => current.filter((item) => item !== provider.id));
+                          }
+                        }}
+                        disabled={syncingProviderIds.includes(provider.id)}
+                      >
+                        <RefreshCcw className="mr-2 h-4 w-4" />
+                        {syncingProviderIds.includes(provider.id) ? "Syncing..." : "Sync groups"}
+                      </Button>
+                    ) : null}
                   </div>
                   {connectivity ? <p className="text-xs text-slate-400">{connectivity.message}</p> : null}
                 </CardBody>
@@ -618,4 +704,3 @@ export function ExtensionsPage() {
     </div>
   );
 }
-

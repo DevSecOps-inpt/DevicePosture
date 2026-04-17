@@ -5,6 +5,7 @@ import type {
   AuditEvent,
   ComplianceDecision,
   ConditionGroup,
+  DirectoryGroup,
   EndpointSummary,
   EnforcementResult,
   IpGroup,
@@ -539,6 +540,39 @@ export const api = {
     });
   },
 
+  listAuthProviderDirectoryGroups(
+    providerId: number,
+    options?: { computerOnly?: boolean; sync?: boolean }
+  ) {
+    const params = new URLSearchParams();
+    if (options?.computerOnly) {
+      params.set("computer_only", "true");
+    }
+    if (options?.sync) {
+      params.set("sync", "true");
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return fetchJson<DirectoryGroup[]>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}/directory-groups${suffix}`);
+  },
+
+  syncAuthProviderDirectoryGroups(providerId: number) {
+    return fetchJson<DirectoryGroup[]>(`${POLICY_SERVICE_URL}/auth/providers/${providerId}/directory-groups/sync`, {
+      method: "POST"
+    });
+  },
+
+  listLdapDirectoryGroups(options?: { computerOnly?: boolean; providerIds?: number[] }) {
+    const params = new URLSearchParams();
+    if (options?.computerOnly) {
+      params.set("computer_only", "true");
+    }
+    for (const providerId of options?.providerIds ?? []) {
+      params.append("provider_id", String(providerId));
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return fetchJson<DirectoryGroup[]>(`${POLICY_SERVICE_URL}/auth/directory-groups/ldap${suffix}`);
+  },
+
   listUsers() {
     return fetchJson<UserAccount[]>(`${POLICY_SERVICE_URL}/admin/users`);
   },
@@ -549,6 +583,7 @@ export const api = {
     email: string | null;
     is_active: boolean;
     auth_source: "local" | "ldap" | "radius" | "oidc" | "oauth2" | "saml";
+    external_provider_id?: number | null;
     password?: string | null;
     external_subject?: string | null;
     external_groups?: string[];
@@ -566,6 +601,7 @@ export const api = {
       full_name: string | null;
       email: string | null;
       is_active: boolean;
+      external_provider_id: number | null;
       password: string;
       external_subject: string | null;
       external_groups: string[];

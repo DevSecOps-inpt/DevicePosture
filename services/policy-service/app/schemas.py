@@ -136,6 +136,19 @@ class AuthProviderResponse(BaseModel):
     updated_at: datetime
 
 
+class DirectoryGroupResponse(BaseModel):
+    id: int
+    provider_id: int
+    group_key: str
+    group_name: str
+    group_dn: str | None = None
+    is_computer_group: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProviderConnectivityResult(BaseModel):
     ok: bool
     message: str
@@ -153,6 +166,7 @@ class UserAccountCreate(BaseModel):
     email: str | None = Field(default=None, max_length=255)
     is_active: bool = True
     auth_source: AuthProtocol = "local"
+    external_provider_id: int | None = None
     password: str | None = Field(default=None, min_length=8, max_length=256)
     external_subject: str | None = Field(default=None, max_length=255)
     external_groups: list[str] = Field(default_factory=list, max_length=200)
@@ -163,6 +177,7 @@ class UserAccountUpdate(BaseModel):
     full_name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
     is_active: bool | None = None
+    external_provider_id: int | None = None
     password: str | None = Field(default=None, min_length=8, max_length=256)
     external_subject: str | None = Field(default=None, max_length=255)
     external_groups: list[str] | None = Field(default=None, max_length=200)
@@ -178,11 +193,37 @@ class UserAccountResponse(BaseModel):
     email: str | None = None
     is_active: bool
     auth_source: AuthProtocol
+    external_provider_id: int | None = None
     external_subject: str | None = None
     external_groups: list[str]
     roles: list[str]
     created_at: datetime
     updated_at: datetime
+
+
+class EndpointDomainVerificationRequest(BaseModel):
+    endpoint_id: str = Field(min_length=1, max_length=128)
+    hostname: str = Field(min_length=1, max_length=255)
+    domain_name: str | None = Field(default=None, max_length=255)
+    domain_dn: str | None = Field(default=None, max_length=1024)
+    required_group_dns: list[str] = Field(default_factory=list, max_length=200)
+
+
+class EndpointDomainVerificationResponse(BaseModel):
+    ok: bool
+    joined: bool
+    in_tree: bool
+    in_required_groups: bool
+    provider_id: int
+    provider_name: str
+    endpoint_id: str
+    hostname: str
+    domain_name: str | None = None
+    domain_dn: str | None = None
+    computer_dn: str | None = None
+    member_group_dns: list[str] = Field(default_factory=list)
+    required_group_dns: list[str] = Field(default_factory=list)
+    message: str
 
 
 class LoginRequest(BaseModel):

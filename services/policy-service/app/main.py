@@ -4,10 +4,11 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import socket
-import time
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -22,7 +23,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import Base, engine, get_db
-from app.models import AuthProviderModel, ConditionGroupModel, Policy, PolicyAssignmentModel, UserAccountModel
+from app.models import (
+    AuthProviderDirectoryGroupModel,
+    AuthProviderModel,
+    ConditionGroupModel,
+    Policy,
+    PolicyAssignmentModel,
+    UserAccountModel,
+)
 from app.schemas import (
     AuthProviderCreate,
     AuthProviderResponse,
@@ -33,7 +41,10 @@ from app.schemas import (
     ConditionGroupCreate,
     ConditionGroupResponse,
     ConditionGroupUpdate,
+    DirectoryGroupResponse,
     EndpointAssignedPolicyResponse,
+    EndpointDomainVerificationRequest,
+    EndpointDomainVerificationResponse,
     LoginRequest,
     LoginResponse,
     ProviderConnectivityResult,
@@ -95,13 +106,31 @@ def ensure_policy_columns() -> None:
 ensure_policy_columns()
 
 
+def ensure_user_columns() -> None:
+    inspector = inspect(engine)
+    existing_columns = {column["name"] for column in inspector.get_columns("user_accounts")}
+    statements: list[str] = []
+    if "external_provider_id" not in existing_columns:
+        statements.append("ALTER TABLE user_accounts ADD COLUMN external_provider_id INTEGER")
+    if statements:
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
+
+
+ensure_user_columns()
+
+
 def ensure_policy_indexes() -> None:
     statements = [
         "CREATE INDEX IF NOT EXISTS idx_policy_assignments_lookup ON policy_assignments(assignment_type, assignment_value, id DESC)",
         "CREATE INDEX IF NOT EXISTS idx_policies_scope_active ON policies(policy_scope, is_active, lifecycle_event_type)",
         "CREATE INDEX IF NOT EXISTS idx_condition_groups_type_name ON condition_groups(group_type, name)",
         "CREATE INDEX IF NOT EXISTS idx_auth_providers_enabled_priority ON auth_providers(is_enabled, priority, id)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_provider_directory_groups_provider_name ON auth_provider_directory_groups(provider_id, group_name)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_provider_directory_groups_provider_dn ON auth_provider_directory_groups(provider_id, group_dn)",
         "CREATE INDEX IF NOT EXISTS idx_user_accounts_source_subject ON user_accounts(auth_source, external_subject, is_active)",
+        "CREATE INDEX IF NOT EXISTS idx_user_accounts_external_provider ON user_accounts(external_provider_id, auth_source, is_active)",
     ]
     with engine.begin() as connection:
         for statement in statements:
@@ -254,6 +283,33 @@ def _extract_ldap_tree_hints(settings: dict[str, Any]) -> tuple[str | None, list
     return base_dn, sorted(suffixes)
 
 
+def _matches_tree(
+    *,
+    domain_name: str,
+    domain_dn: str,
+    suffixes: list[str],
+    base_dn: str | None,
+) -> bool:
+    normalized_suffixes = [item.strip().lower() for item in suffixes if item and item.strip()]
+    normalized_base_dn = (base_dn or "").strip().lower()
+    derived_suffix = _domain_suffix_from_base_dn(normalized_base_dn)
+    if derived_suffix and derived_suffix not in normalized_suffixes:
+        normalized_suffixes.append(derived_suffix)
+
+    if normalized_suffixes and domain_name:
+        for suffix in normalized_suffixes:
+            if domain_name == suffix or domain_name.endswith(f".{suffix}"):
+                return True
+
+    if normalized_base_dn and domain_dn and domain_dn.endswith(normalized_base_dn):
+        return True
+
+    if not normalized_suffixes and not normalized_base_dn:
+        return True
+
+    return False
+
+
 def enrich_domain_membership_condition(condition: dict[str, Any], db: Session) -> dict[str, Any]:
     condition_type = str(condition.get("type") or "").strip().lower()
     if condition_type != "domain_membership":
@@ -305,10 +361,69 @@ def enrich_domain_membership_condition(condition: dict[str, Any], db: Session) -
 
     base_dn, domain_suffixes = _extract_ldap_tree_hints(provider.settings or {})
 
+    required_group_ids: list[int] = []
+    raw_required_group_ids = value.get("required_group_ids")
+    if isinstance(raw_required_group_ids, list):
+        for item in raw_required_group_ids:
+            if isinstance(item, int):
+                required_group_ids.append(item)
+            elif isinstance(item, str) and item.strip().isdigit():
+                required_group_ids.append(int(item.strip()))
+    elif isinstance(raw_required_group_ids, int):
+        required_group_ids.append(raw_required_group_ids)
+
+    required_group_dns = [
+        _normalize_group_dn(item)
+        for item in (value.get("required_group_dns") or [])
+        if isinstance(item, str)
+    ]
+    required_group_dns = [item for item in required_group_dns if item]
+
+    required_group_names = [
+        str(item).strip()
+        for item in (value.get("required_group_names") or [])
+        if isinstance(item, str) and str(item).strip()
+    ]
+
+    if required_group_ids:
+        groups = db.scalars(
+            select(AuthProviderDirectoryGroupModel).where(
+                AuthProviderDirectoryGroupModel.provider_id == provider.id,
+                AuthProviderDirectoryGroupModel.id.in_(required_group_ids),
+            )
+        ).all()
+        if not groups:
+            raise HTTPException(status_code=422, detail="Selected LDAP groups were not found for provider")
+        required_group_dns = [
+            item.group_dn
+            for item in groups
+            if item.group_dn
+        ]
+        required_group_names = [item.group_name for item in groups if item.group_name]
+        required_group_ids = [item.id for item in groups]
+    elif required_group_names:
+        groups = db.scalars(
+            select(AuthProviderDirectoryGroupModel).where(
+                AuthProviderDirectoryGroupModel.provider_id == provider.id,
+                AuthProviderDirectoryGroupModel.group_name.in_(required_group_names),
+            )
+        ).all()
+        if groups:
+            required_group_dns = [
+                item.group_dn
+                for item in groups
+                if item.group_dn
+            ]
+            required_group_names = [item.group_name for item in groups if item.group_name]
+            required_group_ids = [item.id for item in groups]
+
     enriched_value = dict(value)
     enriched_value["provider_id"] = provider.id
     enriched_value["provider_name"] = provider.name
     enriched_value["provider_priority"] = provider.priority
+    enriched_value["required_group_ids"] = required_group_ids
+    enriched_value["required_group_dns"] = required_group_dns
+    enriched_value["required_group_names"] = required_group_names
     if base_dn:
         enriched_value["provider_base_dn"] = base_dn
     if domain_suffixes:
@@ -545,6 +660,521 @@ def parse_host_port_from_uri(uri: str, default_port: int) -> tuple[str, int]:
     return host, port
 
 
+def _normalize_group_dn(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text.lower()
+
+
+def _is_probably_computer_group(*, group_name: str, group_dn: str | None) -> bool:
+    normalized_name = group_name.strip().lower()
+    normalized_dn = (group_dn or "").strip().lower()
+    computer_markers = (
+        "ou=computers",
+        "ou=workstations",
+        "ou=devices",
+        "cn=computers",
+    )
+    if any(marker in normalized_dn for marker in computer_markers):
+        return True
+    return any(token in normalized_name for token in ("computer", "workstation", "device", "endpoint"))
+
+
+def list_provider_directory_groups(
+    *,
+    db: Session,
+    provider_id: int,
+    computer_only: bool = False,
+) -> list[AuthProviderDirectoryGroupModel]:
+    query = select(AuthProviderDirectoryGroupModel).where(AuthProviderDirectoryGroupModel.provider_id == provider_id)
+    if computer_only:
+        query = query.where(AuthProviderDirectoryGroupModel.is_computer_group.is_(True))
+    query = query.order_by(AuthProviderDirectoryGroupModel.group_name, AuthProviderDirectoryGroupModel.id)
+    return db.scalars(query).all()
+
+
+def replace_provider_directory_groups(
+    *,
+    db: Session,
+    provider: AuthProviderModel,
+    groups: list[dict[str, Any]],
+) -> list[AuthProviderDirectoryGroupModel]:
+    existing = db.scalars(
+        select(AuthProviderDirectoryGroupModel).where(AuthProviderDirectoryGroupModel.provider_id == provider.id)
+    ).all()
+    existing_by_key = {item.group_key: item for item in existing}
+
+    normalized_payload: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for raw in groups:
+        group_name = str(raw.get("group_name") or raw.get("name") or "").strip()
+        group_dn = _normalize_group_dn(raw.get("group_dn") or raw.get("dn"))
+        if not group_name and not group_dn:
+            continue
+        group_key = str(raw.get("group_key") or group_dn or group_name.lower()).strip()
+        if not group_key or group_key in seen_keys:
+            continue
+        seen_keys.add(group_key)
+        normalized_payload.append(
+            {
+                "group_key": group_key,
+                "group_name": group_name or (group_dn or group_key),
+                "group_dn": group_dn,
+                "is_computer_group": bool(
+                    raw.get("is_computer_group")
+                    if "is_computer_group" in raw
+                    else _is_probably_computer_group(group_name=group_name or (group_dn or group_key), group_dn=group_dn)
+                ),
+            }
+        )
+
+    kept_keys = {item["group_key"] for item in normalized_payload}
+    for item in existing:
+        if item.group_key not in kept_keys:
+            db.delete(item)
+
+    for payload in normalized_payload:
+        item = existing_by_key.get(payload["group_key"])
+        if item is None:
+            item = AuthProviderDirectoryGroupModel(
+                provider_id=provider.id,
+                group_key=payload["group_key"],
+                group_name=payload["group_name"],
+                group_dn=payload["group_dn"],
+                is_computer_group=payload["is_computer_group"],
+            )
+            db.add(item)
+            continue
+        item.group_name = payload["group_name"]
+        item.group_dn = payload["group_dn"]
+        item.is_computer_group = payload["is_computer_group"]
+
+    db.flush()
+    return list_provider_directory_groups(db=db, provider_id=provider.id)
+
+
+def _groups_from_provider_settings(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    fallback_groups = settings.get("directory_groups_cache")
+    if not isinstance(fallback_groups, list):
+        fallback_groups = settings.get("test_groups")
+    groups: list[dict[str, Any]] = []
+    if isinstance(fallback_groups, list):
+        for item in fallback_groups:
+            if isinstance(item, dict):
+                groups.append(item)
+            elif isinstance(item, str):
+                groups.append({"group_name": item, "group_dn": item})
+    return groups
+
+
+def _extract_ldap_member_groups(
+    provider: AuthProviderModel,
+    *,
+    username: str,
+    password: str,
+) -> tuple[bool, list[str], list[str], str]:
+    settings = provider.settings or {}
+    try:
+        from ldap3 import ALL, SUBTREE, Connection, Server
+        from ldap3.utils.conv import escape_filter_chars
+    except Exception as exc:
+        return False, [], [], f"ldap3 dependency is missing: {exc}"
+
+    server_uri = str(settings.get("server_uri") or "").strip()
+    if not server_uri:
+        return False, [], [], "Missing LDAP server_uri"
+
+    timeout_seconds = float(settings.get("timeout_seconds", 5))
+    bind_template = str(settings.get("bind_dn_template") or settings.get("user_bind_dn_template") or "").strip()
+    service_bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
+    service_bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
+    user_search_base = str(settings.get("user_search_base") or settings.get("base_dn") or "").strip()
+    user_search_filter = str(settings.get("user_search_filter") or "(|(uid={username})(sAMAccountName={username})(cn={username}))").strip()
+
+    escaped_username = escape_filter_chars(username)
+    user_filter = user_search_filter.replace("{username}", escaped_username)
+    if "{username}" not in user_search_filter:
+        user_filter = f"(&(objectClass=person){user_filter})"
+
+    def _read_groups_from_entry(entry: Any) -> tuple[list[str], list[str]]:
+        payload = entry.entry_attributes_as_dict
+        raw_member_of = payload.get("memberOf", [])
+        if not isinstance(raw_member_of, list):
+            raw_member_of = [raw_member_of]
+        group_dns = [
+            str(item).strip().lower()
+            for item in raw_member_of
+            if str(item).strip()
+        ]
+        group_names: list[str] = []
+        for group_dn in group_dns:
+            match = re.search(r"cn=([^,]+)", group_dn, flags=re.IGNORECASE)
+            if match:
+                group_names.append(match.group(1).strip())
+            else:
+                group_names.append(group_dn)
+        return group_names, group_dns
+
+    try:
+        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+
+        if bind_template:
+            user_bind_dn = bind_template.replace("{username}", username)
+            connection = Connection(server, user=user_bind_dn, password=password, auto_bind=True, receive_timeout=timeout_seconds)
+            with connection:
+                if user_search_base:
+                    connection.search(
+                        search_base=user_search_base,
+                        search_filter=user_filter,
+                        search_scope=SUBTREE,
+                        attributes=["memberOf", "cn", "distinguishedName"],
+                    )
+                    if not connection.entries:
+                        return True, [], [], "LDAP bind succeeded but user group membership is empty"
+                    group_names, group_dns = _read_groups_from_entry(connection.entries[0])
+                    return True, group_names, group_dns, "LDAP credentials accepted"
+                return True, [], [], "LDAP credentials accepted"
+
+        if service_bind_dn:
+            service_connection = Connection(
+                server,
+                user=service_bind_dn,
+                password=service_bind_password,
+                auto_bind=True,
+                receive_timeout=timeout_seconds,
+            )
+            with service_connection:
+                if not user_search_base:
+                    return False, [], [], "Missing LDAP user_search_base/base_dn for service-account flow"
+                service_connection.search(
+                    search_base=user_search_base,
+                    search_filter=user_filter,
+                    search_scope=SUBTREE,
+                    attributes=["distinguishedName", "memberOf", "cn"],
+                )
+                if not service_connection.entries:
+                    return False, [], [], "LDAP user was not found in directory"
+                user_entry = service_connection.entries[0]
+                user_dn = str(getattr(user_entry, "entry_dn", "")).strip()
+                if not user_dn:
+                    return False, [], [], "LDAP user DN could not be resolved"
+
+                user_connection = Connection(
+                    server,
+                    user=user_dn,
+                    password=password,
+                    auto_bind=True,
+                    receive_timeout=timeout_seconds,
+                )
+                with user_connection:
+                    user_connection.search(
+                        search_base=user_search_base,
+                        search_filter=user_filter,
+                        search_scope=SUBTREE,
+                        attributes=["memberOf", "cn", "distinguishedName"],
+                    )
+                    target_entry = user_connection.entries[0] if user_connection.entries else user_entry
+                    group_names, group_dns = _read_groups_from_entry(target_entry)
+                    return True, group_names, group_dns, "LDAP credentials accepted"
+
+        return False, [], [], "LDAP provider requires bind_dn_template or service account settings"
+    except Exception as exc:
+        return False, [], [], f"LDAP credential check failed: {exc}"
+
+
+def _verify_endpoint_domain_membership(
+    provider: AuthProviderModel,
+    payload: EndpointDomainVerificationRequest,
+) -> EndpointDomainVerificationResponse:
+    settings = provider.settings or {}
+    base_dn, domain_suffixes = _extract_ldap_tree_hints(settings)
+    joined = bool((payload.domain_name or "").strip() or (payload.domain_dn or "").strip())
+    domain_name = str(payload.domain_name or "").strip().lower()
+    domain_dn = str(payload.domain_dn or "").strip().lower()
+    in_tree = joined and _matches_tree(
+        domain_name=domain_name,
+        domain_dn=domain_dn,
+        suffixes=domain_suffixes,
+        base_dn=base_dn,
+    )
+
+    required_group_dns = sorted(
+        {
+            item.strip().lower()
+            for item in payload.required_group_dns
+            if item and item.strip()
+        }
+    )
+
+    if not joined:
+        return EndpointDomainVerificationResponse(
+            ok=False,
+            joined=False,
+            in_tree=False,
+            in_required_groups=False,
+            provider_id=provider.id,
+            provider_name=provider.name,
+            endpoint_id=payload.endpoint_id,
+            hostname=payload.hostname,
+            domain_name=payload.domain_name,
+            domain_dn=payload.domain_dn,
+            computer_dn=None,
+            member_group_dns=[],
+            required_group_dns=required_group_dns,
+            message="Endpoint is not domain-joined",
+        )
+
+    if not in_tree:
+        return EndpointDomainVerificationResponse(
+            ok=False,
+            joined=True,
+            in_tree=False,
+            in_required_groups=False,
+            provider_id=provider.id,
+            provider_name=provider.name,
+            endpoint_id=payload.endpoint_id,
+            hostname=payload.hostname,
+            domain_name=payload.domain_name,
+            domain_dn=payload.domain_dn,
+            computer_dn=None,
+            member_group_dns=[],
+            required_group_dns=required_group_dns,
+            message="Endpoint domain is outside selected LDAP tree",
+        )
+
+    if not required_group_dns:
+        return EndpointDomainVerificationResponse(
+            ok=True,
+            joined=True,
+            in_tree=True,
+            in_required_groups=True,
+            provider_id=provider.id,
+            provider_name=provider.name,
+            endpoint_id=payload.endpoint_id,
+            hostname=payload.hostname,
+            domain_name=payload.domain_name,
+            domain_dn=payload.domain_dn,
+            computer_dn=None,
+            member_group_dns=[],
+            required_group_dns=[],
+            message="Endpoint domain joined and within LDAP tree",
+        )
+
+    try:
+        from ldap3 import ALL, SUBTREE, Connection, Server
+        from ldap3.utils.conv import escape_filter_chars
+    except Exception as exc:
+        return EndpointDomainVerificationResponse(
+            ok=False,
+            joined=True,
+            in_tree=True,
+            in_required_groups=False,
+            provider_id=provider.id,
+            provider_name=provider.name,
+            endpoint_id=payload.endpoint_id,
+            hostname=payload.hostname,
+            domain_name=payload.domain_name,
+            domain_dn=payload.domain_dn,
+            computer_dn=None,
+            member_group_dns=[],
+            required_group_dns=required_group_dns,
+            message=f"LDAP verification dependency missing: {exc}",
+        )
+
+    server_uri = str(settings.get("server_uri") or "").strip()
+    if not server_uri:
+        return EndpointDomainVerificationResponse(
+            ok=False,
+            joined=True,
+            in_tree=True,
+            in_required_groups=False,
+            provider_id=provider.id,
+            provider_name=provider.name,
+            endpoint_id=payload.endpoint_id,
+            hostname=payload.hostname,
+            domain_name=payload.domain_name,
+            domain_dn=payload.domain_dn,
+            computer_dn=None,
+            member_group_dns=[],
+            required_group_dns=required_group_dns,
+            message="LDAP provider is missing server_uri",
+        )
+
+    bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
+    bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
+    search_base = str(settings.get("computer_search_base") or settings.get("base_dn") or "").strip()
+    search_filter_template = str(
+        settings.get("computer_search_filter")
+        or "(&(objectClass=computer)(|(cn={hostname})(name={hostname})(sAMAccountName={hostname}$)))"
+    ).strip()
+    timeout_seconds = float(settings.get("timeout_seconds", 5))
+
+    escaped_hostname = escape_filter_chars(payload.hostname)
+    search_filter = search_filter_template.replace("{hostname}", escaped_hostname)
+
+    try:
+        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        connection_kwargs: dict[str, Any] = {
+            "auto_bind": True,
+            "receive_timeout": timeout_seconds,
+        }
+        if bind_dn:
+            connection_kwargs["user"] = bind_dn
+            connection_kwargs["password"] = bind_password
+        connection = Connection(server, **connection_kwargs)
+        with connection:
+            if not search_base:
+                raise ValueError("Missing computer_search_base/base_dn")
+            connection.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=["distinguishedName", "memberOf", "cn", "dNSHostName", "name"],
+            )
+            if not connection.entries:
+                return EndpointDomainVerificationResponse(
+                    ok=False,
+                    joined=True,
+                    in_tree=True,
+                    in_required_groups=False,
+                    provider_id=provider.id,
+                    provider_name=provider.name,
+                    endpoint_id=payload.endpoint_id,
+                    hostname=payload.hostname,
+                    domain_name=payload.domain_name,
+                    domain_dn=payload.domain_dn,
+                    computer_dn=None,
+                    member_group_dns=[],
+                    required_group_dns=required_group_dns,
+                    message="Endpoint computer object not found in LDAP directory",
+                )
+
+            entry = connection.entries[0]
+            entry_payload = entry.entry_attributes_as_dict
+            raw_member_of = entry_payload.get("memberOf", [])
+            if not isinstance(raw_member_of, list):
+                raw_member_of = [raw_member_of]
+            member_group_dns = sorted(
+                {
+                    str(item).strip().lower()
+                    for item in raw_member_of
+                    if str(item).strip()
+                }
+            )
+            in_required_groups = all(item in member_group_dns for item in required_group_dns)
+            return EndpointDomainVerificationResponse(
+                ok=in_required_groups,
+                joined=True,
+                in_tree=True,
+                in_required_groups=in_required_groups,
+                provider_id=provider.id,
+                provider_name=provider.name,
+                endpoint_id=payload.endpoint_id,
+                hostname=payload.hostname,
+                domain_name=payload.domain_name,
+                domain_dn=payload.domain_dn,
+                computer_dn=str(getattr(entry, "entry_dn", "")).strip() or None,
+                member_group_dns=member_group_dns,
+                required_group_dns=required_group_dns,
+                message=(
+                    "Endpoint computer is in required LDAP groups"
+                    if in_required_groups
+                    else "Endpoint computer is not in required LDAP groups"
+                ),
+            )
+    except Exception as exc:
+        return EndpointDomainVerificationResponse(
+            ok=False,
+            joined=True,
+            in_tree=True,
+            in_required_groups=False,
+            provider_id=provider.id,
+            provider_name=provider.name,
+            endpoint_id=payload.endpoint_id,
+            hostname=payload.hostname,
+            domain_name=payload.domain_name,
+            domain_dn=payload.domain_dn,
+            computer_dn=None,
+            member_group_dns=[],
+            required_group_dns=required_group_dns,
+            message=f"LDAP computer-group verification failed: {exc}",
+        )
+
+
+def sync_provider_directory_groups(
+    *,
+    db: Session,
+    provider: AuthProviderModel,
+) -> tuple[list[AuthProviderDirectoryGroupModel], str]:
+    if provider.protocol != "ldap":
+        raise HTTPException(status_code=422, detail="Directory group sync is currently supported only for LDAP providers")
+
+    settings = provider.settings or {}
+    synced_groups: list[dict[str, Any]] = []
+    sync_message = "Loaded directory groups from provider settings cache"
+
+    try:
+        from ldap3 import ALL, SUBTREE, Connection, Server
+
+        server_uri = str(settings.get("server_uri") or "").strip()
+        if not server_uri:
+            raise ValueError("Missing LDAP server_uri")
+        search_base = str(settings.get("group_base_dn") or settings.get("base_dn") or "").strip()
+        if not search_base:
+            raise ValueError("Missing LDAP base_dn/group_base_dn")
+        bind_dn = str(settings.get("bind_dn") or settings.get("service_account_dn") or "").strip()
+        bind_password = str(settings.get("bind_password") or settings.get("service_account_password") or "")
+        name_attribute = str(settings.get("group_name_attribute") or "cn").strip() or "cn"
+        search_filter = str(settings.get("group_search_filter") or "(objectClass=group)").strip() or "(objectClass=group)"
+        timeout_seconds = float(settings.get("timeout_seconds", 5))
+
+        server = Server(server_uri, get_info=ALL, connect_timeout=timeout_seconds)
+        if bind_dn:
+            connection = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=timeout_seconds)
+        else:
+            connection = Connection(server, auto_bind=True, receive_timeout=timeout_seconds)
+        with connection:
+            connection.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=[name_attribute, "distinguishedName", "cn"],
+            )
+            for entry in connection.entries:
+                entry_json = entry.entry_attributes_as_dict
+                candidate_name = (
+                    (entry_json.get(name_attribute) or [None])[0]
+                    or (entry_json.get("cn") or [None])[0]
+                    or str(entry.entry_dn)
+                )
+                group_dn = str(entry.entry_dn).strip().lower()
+                synced_groups.append(
+                    {
+                        "group_key": group_dn or str(candidate_name).strip().lower(),
+                        "group_name": str(candidate_name).strip(),
+                        "group_dn": group_dn or None,
+                        "is_computer_group": _is_probably_computer_group(
+                            group_name=str(candidate_name).strip(),
+                            group_dn=group_dn,
+                        ),
+                    }
+                )
+        sync_message = "Directory groups synchronized from LDAP"
+    except Exception as exc:
+        logger.warning("failed to sync LDAP directory groups provider_id=%s: %s", provider.id, exc)
+        synced_groups = _groups_from_provider_settings(settings)
+        sync_message = f"LDAP live sync failed, using cached/test groups: {exc}"
+
+    updated_groups = replace_provider_directory_groups(db=db, provider=provider, groups=synced_groups)
+    provider_settings = dict(settings)
+    provider_settings["directory_groups_last_sync"] = datetime.now(timezone.utc).isoformat()
+    provider_settings["directory_groups_last_count"] = len(updated_groups)
+    provider.settings = provider_settings
+    db.flush()
+    return updated_groups, sync_message
+
+
 def provider_connectivity_check(provider: AuthProviderModel) -> ProviderConnectivityResult:
     protocol = provider.protocol
     settings = provider.settings or {}
@@ -632,6 +1262,27 @@ def provider_test_credentials(
     protocol = provider.protocol
     settings = provider.settings or {}
 
+    if protocol == "ldap":
+        ok, groups, group_dns, message = _extract_ldap_member_groups(
+            provider,
+            username=username,
+            password=password,
+        )
+        if ok:
+            return ProviderConnectivityResult(
+                ok=True,
+                message=message,
+                details={"groups": groups, "group_dns": group_dns},
+            )
+        fallback_ok, fallback_groups, fallback_message = _try_test_accounts(provider, username, password)
+        if fallback_ok:
+            return ProviderConnectivityResult(
+                ok=True,
+                message=f"{fallback_message} (LDAP live check failed: {message})",
+                details={"groups": fallback_groups, "group_dns": []},
+            )
+        return ProviderConnectivityResult(ok=False, message=message)
+
     if protocol == "oauth2":
         token_endpoint = str(settings.get("token_endpoint") or "").strip()
         client_id = str(settings.get("client_id") or "").strip()
@@ -715,6 +1366,7 @@ def to_user_response(item: UserAccountModel) -> UserAccountResponse:
         email=item.email,
         is_active=item.is_active,
         auth_source=item.auth_source,
+        external_provider_id=item.external_provider_id,
         external_subject=item.external_subject,
         external_groups=item.external_groups or [],
         roles=item.roles or [],
@@ -1305,6 +1957,16 @@ def delete_auth_provider(
     provider = db.get(AuthProviderModel, provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="Auth provider not found")
+    mapped_users = db.scalars(
+        select(UserAccountModel).where(UserAccountModel.external_provider_id == provider_id)
+    ).all()
+    for user in mapped_users:
+        user.external_provider_id = None
+    directory_groups = db.scalars(
+        select(AuthProviderDirectoryGroupModel).where(AuthProviderDirectoryGroupModel.provider_id == provider_id)
+    ).all()
+    for group in directory_groups:
+        db.delete(group)
     db.delete(provider)
     db.commit()
 
@@ -1334,6 +1996,62 @@ def test_auth_provider_credentials(
     return provider_test_credentials(provider, payload.username.strip(), payload.password)
 
 
+@app.get("/auth/providers/{provider_id}/directory-groups", response_model=list[DirectoryGroupResponse])
+def get_auth_provider_directory_groups(
+    provider_id: int,
+    computer_only: bool = Query(default=False),
+    sync: bool = Query(default=False),
+    _: UserAccountModel = Depends(get_session_user),
+    db: Session = Depends(get_db),
+) -> list[DirectoryGroupResponse]:
+    provider = db.get(AuthProviderModel, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Auth provider not found")
+    if provider.protocol != "ldap":
+        return []
+    if sync:
+        sync_provider_directory_groups(db=db, provider=provider)
+        db.commit()
+    groups = list_provider_directory_groups(db=db, provider_id=provider.id, computer_only=computer_only)
+    return [DirectoryGroupResponse.model_validate(item) for item in groups]
+
+
+@app.post("/auth/providers/{provider_id}/directory-groups/sync", response_model=list[DirectoryGroupResponse])
+def sync_auth_provider_directory_groups(
+    provider_id: int,
+    _: UserAccountModel = Depends(require_admin_session),
+    db: Session = Depends(get_db),
+) -> list[DirectoryGroupResponse]:
+    provider = db.get(AuthProviderModel, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Auth provider not found")
+    groups, _ = sync_provider_directory_groups(db=db, provider=provider)
+    db.commit()
+    return [DirectoryGroupResponse.model_validate(item) for item in groups]
+
+
+@app.get("/auth/directory-groups/ldap", response_model=list[DirectoryGroupResponse])
+def list_ldap_directory_groups(
+    computer_only: bool = Query(default=False),
+    provider_id: list[int] = Query(default=[]),
+    _: UserAccountModel = Depends(get_session_user),
+    db: Session = Depends(get_db),
+) -> list[DirectoryGroupResponse]:
+    providers_query = select(AuthProviderModel).where(
+        AuthProviderModel.protocol == "ldap",
+        AuthProviderModel.is_enabled.is_(True),
+    )
+    if provider_id:
+        providers_query = providers_query.where(AuthProviderModel.id.in_(provider_id))
+    providers = db.scalars(providers_query.order_by(AuthProviderModel.priority, AuthProviderModel.id)).all()
+    result: list[DirectoryGroupResponse] = []
+    for provider in providers:
+        groups = list_provider_directory_groups(db=db, provider_id=provider.id, computer_only=computer_only)
+        for item in groups:
+            result.append(DirectoryGroupResponse.model_validate(item))
+    return result
+
+
 @app.get("/admin/users", response_model=list[UserAccountResponse])
 def list_users(
     limit: int = Query(default=200, ge=1, le=2000),
@@ -1358,12 +2076,24 @@ def create_user(
         raise HTTPException(status_code=422, detail="Unsupported auth_source")
     if payload.auth_source == "local" and not payload.password:
         raise HTTPException(status_code=422, detail="password is required for local users")
+    external_provider_id: int | None = payload.external_provider_id
+    if payload.auth_source == "local":
+        external_provider_id = None
+    else:
+        if external_provider_id is None:
+            raise HTTPException(status_code=422, detail="external_provider_id is required for external auth users")
+        provider = db.get(AuthProviderModel, external_provider_id)
+        if provider is None:
+            raise HTTPException(status_code=422, detail="Selected auth provider does not exist")
+        if provider.protocol != payload.auth_source:
+            raise HTTPException(status_code=422, detail="Selected auth provider protocol does not match auth_source")
     user = UserAccountModel(
         username=username,
         full_name=payload.full_name,
         email=payload.email,
         is_active=payload.is_active,
         auth_source=payload.auth_source,
+        external_provider_id=external_provider_id,
         local_password_hash=hash_password(payload.password) if payload.password else None,
         external_subject=payload.external_subject,
         external_groups=[item.strip() for item in payload.external_groups if item.strip()],
@@ -1392,6 +2122,19 @@ def update_user(
         user.email = changes["email"]
     if "is_active" in changes and changes["is_active"] is not None:
         user.is_active = bool(changes["is_active"])
+    if "external_provider_id" in changes:
+        provider_id = changes["external_provider_id"]
+        if user.auth_source == "local":
+            user.external_provider_id = None
+        elif provider_id is None:
+            raise HTTPException(status_code=422, detail="external_provider_id is required for external auth users")
+        else:
+            provider = db.get(AuthProviderModel, int(provider_id))
+            if provider is None:
+                raise HTTPException(status_code=422, detail="Selected auth provider does not exist")
+            if provider.protocol != user.auth_source:
+                raise HTTPException(status_code=422, detail="Selected auth provider protocol does not match user auth_source")
+            user.external_provider_id = int(provider_id)
     if "password" in changes and changes["password"]:
         user.local_password_hash = hash_password(changes["password"])
     if "external_subject" in changes:
@@ -1476,9 +2219,19 @@ def login(
             select(UserAccountModel).where(
                 UserAccountModel.is_active.is_(True),
                 UserAccountModel.auth_source == provider.protocol,
+                UserAccountModel.external_provider_id == provider.id,
                 (UserAccountModel.external_subject == username) | (UserAccountModel.username == username),
             )
         )
+        if external_user is None:
+            external_user = db.scalar(
+                select(UserAccountModel).where(
+                    UserAccountModel.is_active.is_(True),
+                    UserAccountModel.auth_source == provider.protocol,
+                    UserAccountModel.external_provider_id.is_(None),
+                    (UserAccountModel.external_subject == username) | (UserAccountModel.username == username),
+                )
+            )
         if external_user is None:
             continue
         required_groups = {item.strip().lower() for item in (external_user.external_groups or []) if item.strip()}
@@ -1487,8 +2240,14 @@ def login(
             for item in credentials.details.get("groups", [])
             if str(item).strip()
         }
+        provider_group_dns = {
+            str(item).strip().lower()
+            for item in credentials.details.get("group_dns", [])
+            if str(item).strip()
+        }
         if required_groups and not provider_groups.intersection(required_groups):
-            continue
+            if not provider_group_dns.intersection(required_groups):
+                continue
 
         token, expires_at = issue_auth_token(external_user)
         response.set_cookie(
@@ -1513,6 +2272,25 @@ def login(
 
     logger.warning("security_event=auth.login_failed username=%s", username)
     raise HTTPException(status_code=401, detail="Invalid username/password or provider mapping")
+
+
+@app.post("/domain-membership/verify", response_model=EndpointDomainVerificationResponse)
+def verify_endpoint_domain_membership(
+    payload: EndpointDomainVerificationRequest,
+    provider_id: int = Query(..., ge=1),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> EndpointDomainVerificationResponse:
+    provider = db.scalar(
+        select(AuthProviderModel).where(
+            AuthProviderModel.id == provider_id,
+            AuthProviderModel.protocol == "ldap",
+            AuthProviderModel.is_enabled.is_(True),
+        )
+    )
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Enabled LDAP provider not found")
+    return _verify_endpoint_domain_membership(provider, payload)
 
 
 @app.get("/auth/me", response_model=AuthSessionUser)

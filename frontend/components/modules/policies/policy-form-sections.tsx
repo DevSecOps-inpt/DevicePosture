@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { AdapterConfig, AuthProvider, ConditionGroup } from "@/types/platform";
+import type { AdapterConfig, AuthProvider, ConditionGroup, DirectoryGroup } from "@/types/platform";
 import {
   ANTIVIRUS_FAMILY_SUGGESTIONS,
   ANTIVIRUS_STATUS_SUGGESTIONS,
@@ -22,6 +22,7 @@ type PolicyFormSectionsProps = {
   onChange: Dispatch<SetStateAction<PolicyEditorState>>;
   conditionGroups?: ConditionGroup[];
   ldapProviders?: AuthProvider[];
+  ldapDirectoryGroups?: DirectoryGroup[];
   adapterProfiles?: AdapterConfig[];
   ipGroups?: Array<{ id: string; name: string }>;
 };
@@ -159,7 +160,8 @@ export function PolicyConditionsSection({
   value,
   onChange,
   conditionGroups = [],
-  ldapProviders = []
+  ldapProviders = [],
+  ldapDirectoryGroups = []
 }: PolicyFormSectionsProps) {
   if (value.policyType === "active_to_inactive") {
     return (
@@ -177,6 +179,12 @@ export function PolicyConditionsSection({
   const antivirusGroups = conditionGroups.filter(
     (group) => group.group_type === "allowed_antivirus_families"
   );
+  const selectedDomainProviderGroups =
+    value.conditions.domainLdapProviderId === ""
+      ? []
+      : ldapDirectoryGroups.filter(
+          (group) => group.provider_id === value.conditions.domainLdapProviderId
+        );
 
   return (
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
@@ -484,7 +492,9 @@ export function PolicyConditionsSection({
             }
             onChange={(event) =>
               updateConditions(onChange, {
-                domainLdapProviderId: event.target.value ? Number(event.target.value) : ""
+                domainLdapProviderId: event.target.value ? Number(event.target.value) : "",
+                domainRequiredGroupIds: [],
+                domainRequiredGroupDns: []
               })
             }
             disabled={!value.conditions.domainMembershipEnabled}
@@ -497,6 +507,41 @@ export function PolicyConditionsSection({
               </option>
             ))}
           </select>
+        </div>
+        <div className="mt-3 rounded-xl border border-border bg-slate-900/40 p-3">
+          <p className="text-xs text-slate-400">
+            Required LDAP computer groups (optional). If selected, endpoint computer object must be a member.
+          </p>
+          <div className="mt-2 grid gap-2">
+            {selectedDomainProviderGroups.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                No cached LDAP groups for this provider. Run directory group sync in Extensions.
+              </p>
+            ) : (
+              selectedDomainProviderGroups.map((group) => {
+                const checked = value.conditions.domainRequiredGroupIds.includes(group.id);
+                return (
+                  <label key={group.id} className="flex items-center gap-2 text-sm text-slate-200">
+                    <input
+                      type="checkbox"
+                      disabled={!value.conditions.domainMembershipEnabled}
+                      checked={checked}
+                      onChange={(event) =>
+                        updateConditions(onChange, {
+                          domainRequiredGroupIds: event.target.checked
+                            ? [...value.conditions.domainRequiredGroupIds, group.id]
+                            : value.conditions.domainRequiredGroupIds.filter((item) => item !== group.id),
+                          domainRequiredGroupDns: []
+                        })
+                      }
+                    />
+                    <span>{group.group_name}</span>
+                    <span className="text-xs text-slate-500">{group.group_dn ?? ""}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
         </div>
         {value.conditions.domainMembershipEnabled && ldapProviders.length === 0 ? (
           <p className="mt-2 text-xs text-amber-300">
