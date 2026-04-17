@@ -43,6 +43,8 @@ from app.models import (
 )
 from app.object_store import (
     add_object_to_group,
+    claim_endpoint_group_membership,
+    count_group_membership_owners,
     ensure_ip_group,
     ensure_ip_object,
     find_group_by_id,
@@ -50,6 +52,7 @@ from app.object_store import (
     find_ip_host_object,
     find_object_by_id,
     list_group_host_ips,
+    release_endpoint_group_membership,
     remove_object_from_group,
 )
 from app.schemas import (
@@ -107,6 +110,8 @@ _circuit_breaker_lock = threading.Lock()
 _circuit_breakers: dict[str, dict[str, float | int]] = {}
 _request_rate_lock = threading.Lock()
 _request_rate_state: dict[str, list[float]] = {}
+_group_operation_locks_guard = threading.Lock()
+_group_operation_locks: dict[str, threading.RLock] = {}
 ENFORCEMENT_RATE_LIMIT_PER_MINUTE = 240
 request_correlation_id: ContextVar[str] = ContextVar("request_correlation_id", default="")
 
@@ -123,6 +128,21 @@ def _apply_rate_limit(identity: str) -> None:
         if len(history) >= ENFORCEMENT_RATE_LIMIT_PER_MINUTE:
             raise HTTPException(status_code=429, detail="Too many requests")
         history.append(now)
+
+
+def _group_operation_lock_key(*parts: str | None) -> str:
+    normalized = [str(part or "").strip().lower() for part in parts if str(part or "").strip()]
+    return "|".join(normalized) if normalized else "group|default"
+
+
+def _get_group_operation_lock(*parts: str | None) -> threading.RLock:
+    key = _group_operation_lock_key(*parts)
+    with _group_operation_locks_guard:
+        lock = _group_operation_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _group_operation_locks[key] = lock
+        return lock
 
 
 @app.middleware("http")
@@ -633,23 +653,37 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 )
                 continue
 
-            object_name = rendered_parameters.get("object_name") or f"endpoint-{decision.endpoint_id}"
-            group = resolved_group if resolved_group is not None else ensure_ip_group(db, str(group_name))
-            ip_object = ensure_ip_object(
-                db=db,
-                name=str(object_name),
-                object_type="host",
-                value=decision.endpoint_ip,
-                description=f"Auto-managed for endpoint {decision.endpoint_id}",
-                managed_by="policy",
-            )
-            added = add_object_to_group(db=db, group=group, ip_object=ip_object)
+            object_name = str(rendered_parameters.get("object_name") or f"endpoint-{decision.endpoint_id}")
+            with _get_group_operation_lock("object-group", str(group_name)):
+                group = resolved_group if resolved_group is not None else ensure_ip_group(db, str(group_name))
+                ip_object = ensure_ip_object(
+                    db=db,
+                    name=object_name,
+                    object_type="host",
+                    value=decision.endpoint_ip,
+                    description=f"Auto-managed for endpoint {decision.endpoint_id}",
+                    managed_by="policy",
+                )
+                ownership_claimed = claim_endpoint_group_membership(
+                    db=db,
+                    group=group,
+                    ip_object=ip_object,
+                    endpoint_id=decision.endpoint_id,
+                )
+                added = add_object_to_group(db=db, group=group, ip_object=ip_object)
+                owner_count = count_group_membership_owners(
+                    db=db,
+                    group=group,
+                    ip_object=ip_object,
+                )
             payload = {
                 "action_type": action_type,
                 "status": "success",
                 "group_name": group.name,
                 "object_id": ip_object.object_id,
                 "operation": "added" if added else "already_present",
+                "ownership_claimed": ownership_claimed,
+                "owner_count": owner_count,
             }
             append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
@@ -684,7 +718,15 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
 
-            ip_object = find_ip_host_object(db, decision.endpoint_ip)
+            object_name = str(rendered_parameters.get("object_name") or f"endpoint-{decision.endpoint_id}")
+            ip_object = db.scalar(
+                select(IpObjectModel).where(
+                    IpObjectModel.object_type == "host",
+                    IpObjectModel.name == object_name,
+                )
+            )
+            if ip_object is None:
+                ip_object = find_ip_host_object(db, decision.endpoint_ip)
             if ip_object is None:
                 payload = {
                     "action_type": action_type,
@@ -695,13 +737,32 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
                 continue
 
-            removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+            with _get_group_operation_lock("object-group", str(group.name)):
+                ownership_released = release_endpoint_group_membership(
+                    db=db,
+                    group=group,
+                    ip_object=ip_object,
+                    endpoint_id=decision.endpoint_id,
+                )
+                owner_count = count_group_membership_owners(
+                    db=db,
+                    group=group,
+                    ip_object=ip_object,
+                )
+                if owner_count == 0:
+                    removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+                    operation = "removed" if removed else "already_absent"
+                else:
+                    removed = False
+                    operation = "retained_by_other_endpoints"
             payload = {
                 "action_type": action_type,
                 "status": "success",
                 "group_name": group.name,
                 "object_id": ip_object.object_id,
-                "operation": "removed" if removed else "already_absent",
+                "operation": operation,
+                "ownership_released": ownership_released,
+                "owner_count": owner_count,
             }
             append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
@@ -744,47 +805,54 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 "policy_name": decision.policy_name,
                 "adapter_settings": settings,
             }
-            if adapter_action == "sync_group":
-                if not group_name:
-                    append_policy_action_result(
-                        db=db,
-                        endpoint_id=decision.endpoint_id,
-                        results=results,
-                        payload={"action_type": action_type, "status": "failed", "message": "group_name is missing"},
-                    )
-                    continue
-                group = resolved_group or find_group_by_name(db, str(group_name))
-                decision_payload["group_ips"] = [] if group is None else list_group_host_ips(db, group)
-
-            action = EnforcementAction(
-                adapter=selected_adapter,
-                action=adapter_action,
-                endpoint_id=decision.endpoint_id,
-                ip_address=decision.endpoint_ip or "0.0.0.0",
-                group_name=str(group_name) if group_name else None,
-                adapter_profile=profile_name,
-                decision=decision_payload,
+            lock = _get_group_operation_lock(
+                "adapter-group",
+                selected_adapter,
+                str(profile_name or ""),
+                str(group_name or ""),
             )
-            try:
-                enforcement_result = registry.execute(action)
-                persist_enforcement_result(db, enforcement_result)
-                payload = {
-                    "action_type": action_type,
-                    "status": enforcement_result.status,
-                    "adapter": selected_adapter,
-                    "adapter_profile": profile_name,
-                    "group_name": group_name,
-                    "details": enforcement_result.details,
-                }
-            except Exception as exc:  # pragma: no cover - defensive guard
-                payload = {
-                    "action_type": action_type,
-                    "status": "failed",
-                    "adapter": selected_adapter,
-                    "adapter_profile": profile_name,
-                    "group_name": group_name,
-                    "message": f"adapter execution crashed: {exc}",
-                }
+            with lock:
+                if adapter_action == "sync_group":
+                    if not group_name:
+                        append_policy_action_result(
+                            db=db,
+                            endpoint_id=decision.endpoint_id,
+                            results=results,
+                            payload={"action_type": action_type, "status": "failed", "message": "group_name is missing"},
+                        )
+                        continue
+                    group = resolved_group or find_group_by_name(db, str(group_name))
+                    decision_payload["group_ips"] = [] if group is None else list_group_host_ips(db, group)
+
+                action = EnforcementAction(
+                    adapter=selected_adapter,
+                    action=adapter_action,
+                    endpoint_id=decision.endpoint_id,
+                    ip_address=decision.endpoint_ip or "0.0.0.0",
+                    group_name=str(group_name) if group_name else None,
+                    adapter_profile=profile_name,
+                    decision=decision_payload,
+                )
+                try:
+                    enforcement_result = registry.execute(action)
+                    persist_enforcement_result(db, enforcement_result)
+                    payload = {
+                        "action_type": action_type,
+                        "status": enforcement_result.status,
+                        "adapter": selected_adapter,
+                        "adapter_profile": profile_name,
+                        "group_name": group_name,
+                        "details": enforcement_result.details,
+                    }
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    payload = {
+                        "action_type": action_type,
+                        "status": "failed",
+                        "adapter": selected_adapter,
+                        "adapter_profile": profile_name,
+                        "group_name": group_name,
+                        "message": f"adapter execution crashed: {exc}",
+                    }
             append_policy_action_result(db=db, endpoint_id=decision.endpoint_id, results=results, payload=payload)
             continue
 

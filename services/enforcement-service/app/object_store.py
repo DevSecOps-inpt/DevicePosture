@@ -6,7 +6,12 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import IpGroupMemberModel, IpGroupModel, IpObjectModel
+from app.models import (
+    IpGroupMemberModel,
+    IpGroupMembershipOwnershipModel,
+    IpGroupModel,
+    IpObjectModel,
+)
 
 
 def _utcnow() -> datetime:
@@ -129,3 +134,68 @@ def list_group_host_ips(db: Session, group: IpGroupModel) -> list[str]:
         if member.ip_object.object_type == "host":
             ips.append(member.ip_object.value)
     return sorted(set(ips))
+
+
+def claim_endpoint_group_membership(
+    *,
+    db: Session,
+    group: IpGroupModel,
+    ip_object: IpObjectModel,
+    endpoint_id: str,
+) -> bool:
+    normalized_endpoint_id = endpoint_id.strip()
+    existing = db.scalar(
+        select(IpGroupMembershipOwnershipModel).where(
+            IpGroupMembershipOwnershipModel.group_ref == group.id,
+            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+            IpGroupMembershipOwnershipModel.endpoint_id == normalized_endpoint_id,
+        )
+    )
+    if existing is not None:
+        return False
+    db.add(
+        IpGroupMembershipOwnershipModel(
+            group_ref=group.id,
+            object_ref=ip_object.id,
+            endpoint_id=normalized_endpoint_id,
+        )
+    )
+    db.flush()
+    return True
+
+
+def release_endpoint_group_membership(
+    *,
+    db: Session,
+    group: IpGroupModel,
+    ip_object: IpObjectModel,
+    endpoint_id: str,
+) -> bool:
+    normalized_endpoint_id = endpoint_id.strip()
+    existing = db.scalar(
+        select(IpGroupMembershipOwnershipModel).where(
+            IpGroupMembershipOwnershipModel.group_ref == group.id,
+            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+            IpGroupMembershipOwnershipModel.endpoint_id == normalized_endpoint_id,
+        )
+    )
+    if existing is None:
+        return False
+    db.delete(existing)
+    db.flush()
+    return True
+
+
+def count_group_membership_owners(
+    *,
+    db: Session,
+    group: IpGroupModel,
+    ip_object: IpObjectModel,
+) -> int:
+    owners = db.scalars(
+        select(IpGroupMembershipOwnershipModel.id).where(
+            IpGroupMembershipOwnershipModel.group_ref == group.id,
+            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+        )
+    ).all()
+    return len(owners)

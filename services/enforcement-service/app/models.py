@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -89,6 +89,25 @@ class IpGroupMemberModel(Base):
 
     group: Mapped[IpGroupModel] = relationship(back_populates="members")
     ip_object: Mapped[IpObjectModel] = relationship(back_populates="memberships")
+
+
+class IpGroupMembershipOwnershipModel(Base):
+    __tablename__ = "ip_group_membership_ownership"
+    __table_args__ = (
+        UniqueConstraint(
+            "group_ref",
+            "object_ref",
+            "endpoint_id",
+            name="uq_group_object_endpoint_owner",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_ref: Mapped[int] = mapped_column(ForeignKey("ip_groups.id"), index=True)
+    object_ref: Mapped[int] = mapped_column(ForeignKey("ip_objects.id"), index=True)
+    endpoint_id: Mapped[str] = mapped_column(String(128), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, index=True)
 
 
 class BackgroundJobModel(Base):
