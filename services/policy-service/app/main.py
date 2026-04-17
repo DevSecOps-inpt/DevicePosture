@@ -1100,6 +1100,35 @@ def _search_first_ldap_entry(
     return None, warnings
 
 
+def _coerce_optional_int(value: Any) -> int | None:
+    candidate = value
+    if isinstance(candidate, list):
+        candidate = candidate[0] if candidate else None
+    if candidate is None:
+        return None
+    try:
+        if isinstance(candidate, bytes):
+            candidate = candidate.decode(errors="ignore")
+        return int(str(candidate).strip())
+    except Exception:
+        return None
+
+
+def _extract_object_classes(entry_payload: dict[str, Any]) -> set[str]:
+    raw = entry_payload.get("objectClass", [])
+    if not isinstance(raw, list):
+        raw = [raw]
+    return {str(item).strip().lower() for item in raw if str(item).strip()}
+
+
+def _is_dn_within_container(*, entry_dn: str, container_dn: str) -> bool:
+    normalized_entry = entry_dn.strip().lower()
+    normalized_container = container_dn.strip().lower()
+    if not normalized_entry or not normalized_container:
+        return False
+    return normalized_entry == normalized_container or normalized_entry.endswith(f",{normalized_container}")
+
+
 def _extract_ldap_member_groups(
     provider: AuthProviderModel,
     *,
@@ -1375,8 +1404,29 @@ def _verify_endpoint_domain_membership(
     timeout_seconds = float(settings.get("timeout_seconds", 5))
     receive_timeout_seconds = _normalize_ldap_receive_timeout(timeout_seconds)
 
-    escaped_hostname = escape_filter_chars(payload.hostname)
-    search_filter = search_filter_template.replace("{hostname}", escaped_hostname)
+    raw_hostname = str(payload.hostname or "").strip()
+    hostname_candidates: list[str] = []
+    if raw_hostname:
+        hostname_candidates.append(raw_hostname)
+        short_hostname = raw_hostname.split(".", 1)[0].strip()
+        if short_hostname and short_hostname.lower() != raw_hostname.lower():
+            hostname_candidates.append(short_hostname)
+    if not hostname_candidates:
+        hostname_candidates = [raw_hostname]
+
+    search_filters: list[str] = []
+    seen_search_filters: set[str] = set()
+    for hostname_candidate in hostname_candidates:
+        escaped_candidate = escape_filter_chars(hostname_candidate)
+        filter_text = (
+            search_filter_template
+            .replace("{hostname}", escaped_candidate)
+            .replace("{hostname_short}", escaped_candidate)
+        )
+        key = filter_text.strip().lower()
+        if key and key not in seen_search_filters:
+            seen_search_filters.add(key)
+            search_filters.append(filter_text)
 
     try:
         server = _build_ldap_server(
@@ -1396,13 +1446,32 @@ def _verify_endpoint_domain_membership(
         with connection:
             if not search_bases:
                 raise ValueError("Missing computer_search_base/base_dn")
-            entry, lookup_warnings = _search_first_ldap_entry(
-                connection=connection,
-                search_bases=search_bases,
-                search_filter=search_filter,
-                search_scope=SUBTREE,
-                attributes=["distinguishedName", "memberOf", "cn", "dNSHostName", "name"],
-            )
+            entry = None
+            lookup_warnings: list[str] = []
+            for index, filter_text in enumerate(search_filters):
+                candidate_entry, candidate_warnings = _search_first_ldap_entry(
+                    connection=connection,
+                    search_bases=search_bases,
+                    search_filter=filter_text,
+                    search_scope=SUBTREE,
+                    attributes=[
+                        "distinguishedName",
+                        "memberOf",
+                        "cn",
+                        "dNSHostName",
+                        "name",
+                        "primaryGroupID",
+                    ],
+                )
+                if candidate_warnings:
+                    if len(search_filters) > 1:
+                        candidate_label = hostname_candidates[min(index, len(hostname_candidates) - 1)]
+                        lookup_warnings.extend([f"{candidate_label}: {item}" for item in candidate_warnings])
+                    else:
+                        lookup_warnings.extend(candidate_warnings)
+                if candidate_entry is not None:
+                    entry = candidate_entry
+                    break
             if entry is None:
                 if lookup_warnings:
                     logger.info(
@@ -1427,17 +1496,89 @@ def _verify_endpoint_domain_membership(
                     message="Endpoint computer object not found in LDAP directory",
                 )
             entry_payload = entry.entry_attributes_as_dict
+            computer_dn = str(getattr(entry, "entry_dn", "")).strip()
+            computer_dn_lower = computer_dn.lower()
             raw_member_of = entry_payload.get("memberOf", [])
             if not isinstance(raw_member_of, list):
                 raw_member_of = [raw_member_of]
-            member_group_dns = sorted(
-                {
-                    str(item).strip().lower()
-                    for item in raw_member_of
-                    if str(item).strip()
-                }
-            )
-            in_required_groups = all(item in member_group_dns for item in required_group_dns)
+            member_group_dns_set = {
+                str(item).strip().lower()
+                for item in raw_member_of
+                if str(item).strip()
+            }
+            computer_primary_group_id = _coerce_optional_int(entry_payload.get("primaryGroupID"))
+            satisfied_required_dns = {item for item in required_group_dns if item in member_group_dns_set}
+
+            unresolved_required_dns = [item for item in required_group_dns if item not in satisfied_required_dns]
+            required_lookup_warnings: list[str] = []
+
+            if unresolved_required_dns and computer_dn:
+                escaped_computer_dn = escape_filter_chars(computer_dn)
+                for required_dn in unresolved_required_dns:
+                    try:
+                        exists_ok = connection.search(
+                            search_base=required_dn,
+                            search_filter="(objectClass=*)",
+                            search_scope=_normalize_ldap_search_scope("BASE"),
+                            attributes=["objectClass", "primaryGroupToken", "distinguishedName"],
+                        )
+                        if not exists_ok:
+                            result = getattr(connection, "result", {}) or {}
+                            result_code = int(result.get("result", 1))
+                            if result_code not in {0, 4}:
+                                required_lookup_warnings.append(
+                                    f"{required_dn}: {result.get('description', 'search_failed')}"
+                                )
+                                continue
+                        if not connection.entries:
+                            continue
+
+                        required_entry = connection.entries[0]
+                        required_payload = required_entry.entry_attributes_as_dict
+                        required_entry_dn = str(getattr(required_entry, "entry_dn", "")).strip().lower() or required_dn
+                        object_classes = _extract_object_classes(required_payload)
+
+                        if "container" in object_classes or "organizationalunit" in object_classes:
+                            if _is_dn_within_container(entry_dn=computer_dn_lower, container_dn=required_entry_dn):
+                                satisfied_required_dns.add(required_dn)
+                                member_group_dns_set.add(required_entry_dn)
+                            continue
+
+                        membership_ok = connection.search(
+                            search_base=required_entry_dn,
+                            search_filter=(
+                                f"(|(member={escaped_computer_dn})"
+                                f"(member:1.2.840.113556.1.4.1941:={escaped_computer_dn}))"
+                            ),
+                            search_scope=_normalize_ldap_search_scope("BASE"),
+                            attributes=["distinguishedName"],
+                        )
+                        if membership_ok and connection.entries:
+                            satisfied_required_dns.add(required_dn)
+                            member_group_dns_set.add(required_entry_dn)
+                            continue
+
+                        required_primary_group_token = _coerce_optional_int(required_payload.get("primaryGroupToken"))
+                        if (
+                            required_primary_group_token is not None
+                            and computer_primary_group_id is not None
+                            and required_primary_group_token == computer_primary_group_id
+                        ):
+                            satisfied_required_dns.add(required_dn)
+                            member_group_dns_set.add(required_entry_dn)
+                    except Exception as exc:
+                        required_lookup_warnings.append(f"{required_dn}: {exc}")
+
+            if required_lookup_warnings:
+                logger.info(
+                    "provider_id=%s LDAP required-group lookup warnings for endpoint=%s: %s",
+                    provider.id,
+                    payload.endpoint_id,
+                    "; ".join(required_lookup_warnings),
+                )
+
+            member_group_dns = sorted(member_group_dns_set)
+            in_required_groups = all(item in satisfied_required_dns for item in required_group_dns)
             return EndpointDomainVerificationResponse(
                 ok=in_required_groups,
                 joined=True,
@@ -1449,7 +1590,7 @@ def _verify_endpoint_domain_membership(
                 hostname=payload.hostname,
                 domain_name=payload.domain_name,
                 domain_dn=payload.domain_dn,
-                computer_dn=str(getattr(entry, "entry_dn", "")).strip() or None,
+                computer_dn=computer_dn or None,
                 member_group_dns=member_group_dns,
                 required_group_dns=required_group_dns,
                 message=(
