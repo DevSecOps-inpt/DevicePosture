@@ -845,6 +845,20 @@ def _dedupe_ldap_directory_candidates(candidates: list[dict[str, Any]]) -> list[
     return deduped
 
 
+def _build_well_known_ad_container_dns(*, settings: dict[str, Any]) -> list[str]:
+    base_dn = str(settings.get("base_dn") or "").strip()
+    if not base_dn:
+        return []
+    return _dedupe_strings(
+        [
+            f"CN=Computers,{base_dn}",
+            f"CN=Users,{base_dn}",
+            f"CN=Builtin,{base_dn}",
+            f"OU=Domain Controllers,{base_dn}",
+        ]
+    )
+
+
 def _group_candidate_from_ldap_entry(*, entry: Any, name_attribute: str) -> dict[str, Any]:
     entry_json = entry.entry_attributes_as_dict
     candidate_name = (
@@ -915,6 +929,38 @@ def _search_ldap_groups_across_bases(
                 break
         except Exception as exc:
             warnings.append(f"{search_base}: {exc}")
+
+    return _dedupe_ldap_directory_candidates(candidates), warnings
+
+
+def _search_ldap_entries_by_dn(
+    *,
+    connection: Any,
+    entry_dns: list[str],
+    name_attribute: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    candidates: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    normalized_scope = _normalize_ldap_search_scope("BASE")
+
+    for entry_dn in entry_dns:
+        try:
+            ok = connection.search(
+                search_base=entry_dn,
+                search_filter="(objectClass=*)",
+                search_scope=normalized_scope,
+                attributes=[name_attribute, "distinguishedName", "cn", "name", "sAMAccountName", "ou"],
+            )
+            if not ok:
+                result = getattr(connection, "result", {}) or {}
+                result_code = int(result.get("result", 1))
+                if result_code not in {0, 4}:
+                    warnings.append(f"{entry_dn}: {result.get('description', 'search_failed')}")
+                    continue
+            if connection.entries:
+                candidates.append(_group_candidate_from_ldap_entry(entry=connection.entries[0], name_attribute=name_attribute))
+        except Exception as exc:
+            warnings.append(f"{entry_dn}: {exc}")
 
     return _dedupe_ldap_directory_candidates(candidates), warnings
 
@@ -1485,9 +1531,22 @@ def sync_provider_directory_groups(
                     name_attribute=name_attribute,
                     search_scope=SUBTREE,
                 )
-                synced_groups = _dedupe_ldap_directory_candidates([*synced_groups, *container_candidates])
+                well_known_dns = _build_well_known_ad_container_dns(settings=settings)
+                well_known_candidates: list[dict[str, Any]] = []
+                well_known_warnings: list[str] = []
+                if well_known_dns:
+                    well_known_candidates, well_known_warnings = _search_ldap_entries_by_dn(
+                        connection=connection,
+                        entry_dns=well_known_dns,
+                        name_attribute=name_attribute,
+                    )
+                synced_groups = _dedupe_ldap_directory_candidates(
+                    [*synced_groups, *container_candidates, *well_known_candidates]
+                )
                 if container_warnings:
                     sync_warnings.extend([f"containers: {item}" for item in container_warnings])
+                if well_known_warnings:
+                    sync_warnings.extend([f"well_known_containers: {item}" for item in well_known_warnings])
         sync_message = (
             f"Directory entries synchronized from LDAP ({len(synced_groups)} entries, {len(search_bases)} bases)"
         )
@@ -1625,6 +1684,29 @@ def search_provider_directory_groups(
                     candidates = _dedupe_ldap_directory_candidates([*candidates, *container_candidates])
                     if container_warnings:
                         search_warnings.extend([f"containers: {item}" for item in container_warnings])
+                remaining_limit = max(0, payload.limit - len(candidates))
+                if remaining_limit > 0:
+                    well_known_dns = _build_well_known_ad_container_dns(settings=settings)
+                    if well_known_dns:
+                        well_known_candidates, well_known_warnings = _search_ldap_entries_by_dn(
+                            connection=connection,
+                            entry_dns=well_known_dns,
+                            name_attribute=name_attribute,
+                        )
+                        if payload.search:
+                            search_text = payload.search.strip().lower()
+                            filtered_well_known_candidates = []
+                            for item in well_known_candidates:
+                                candidate_name = str(item.get("group_name") or "").lower()
+                                candidate_dn = str(item.get("group_dn") or "").lower()
+                                if search_text in candidate_name or search_text in candidate_dn:
+                                    filtered_well_known_candidates.append(item)
+                            well_known_candidates = filtered_well_known_candidates
+                        if remaining_limit > 0:
+                            well_known_candidates = well_known_candidates[:remaining_limit]
+                            candidates = _dedupe_ldap_directory_candidates([*candidates, *well_known_candidates])
+                        if well_known_warnings:
+                            search_warnings.extend([f"well_known_containers: {item}" for item in well_known_warnings])
     except Exception as exc:
         logger.exception("LDAP group search failed provider_id=%s: %s", provider.id, exc)
         raise HTTPException(status_code=502, detail=f"LDAP group search failed ({type(exc).__name__}): {exc}") from exc
