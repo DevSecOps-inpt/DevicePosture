@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters import build_registry
 from app.adapters.fortigate import FortiGateAdapter
+from app.adapters.paloalto import PaloAltoAdapter
 from app.config import DEFAULT_ADAPTER, HTTP_TIMEOUT_SECONDS
 from app.config import (
     ADAPTER_TOKEN_MASK,
@@ -102,6 +103,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=6)
 registry = build_registry()
 fortigate_adapter = FortiGateAdapter()
+paloalto_adapter = PaloAltoAdapter()
 executor = ThreadPoolExecutor(max_workers=max(1, BACKGROUND_WORKERS))
 logger = logging.getLogger("enforcement-service")
 if not logger.handlers:
@@ -379,6 +381,33 @@ def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
                 is_active=True,
                 status="error",
                 detail=detail,
+            )
+
+    if item.adapter == "paloalto":
+        settings = paloalto_adapter.build_settings(adapter_settings=item.settings or {})
+        # Health probes should be fast and non-blocking for the UI.
+        settings["retries"] = 1
+        settings["timeout"] = min(float(settings.get("timeout", 5.0)), 3.0)
+        try:
+            details = paloalto_adapter.check_connection(settings)
+            version = details.get("version")
+            detail = "Connected to Palo Alto API"
+            if version:
+                detail = f"{detail} (version {version})"
+            return AdapterHealthResponse(
+                name=item.name,
+                adapter=item.adapter,
+                is_active=True,
+                status="healthy",
+                detail=detail,
+            )
+        except requests.RequestException as exc:
+            return AdapterHealthResponse(
+                name=item.name,
+                adapter=item.adapter,
+                is_active=True,
+                status="error",
+                detail=_short_error_message(exc),
             )
 
     return AdapterHealthResponse(
