@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 import ipaddress
 import logging
+import re
 import threading
 import time
 from typing import Any
@@ -196,7 +197,7 @@ def store_audit_event(db: Session, event_type: str, endpoint_id: str | None, pay
 
 
 def _short_error_message(exc: Exception) -> str:
-    text = str(exc).strip()
+    text = _redact_sensitive_error_text(str(exc).strip())
     if len(text) > 240:
         return f"{text[:237]}..."
     return text or "Unknown adapter error"
@@ -239,6 +240,19 @@ def log_policy_http_action_result(
 
 
 SENSITIVE_SETTING_KEYS = {"token", "api_key", "apikey", "secret", "password"}
+_SENSITIVE_ERROR_PATTERNS = [
+    re.compile(r"([?&](?:key|token|api_key|apikey|password|secret)=)([^&\s]+)", flags=re.IGNORECASE),
+    re.compile(r"((?:key|token|api_key|apikey|password|secret)\s*[=:]\s*)([^\s,;]+)", flags=re.IGNORECASE),
+]
+
+
+def _redact_sensitive_error_text(text: str) -> str:
+    if not text:
+        return text
+    redacted = text
+    for pattern in _SENSITIVE_ERROR_PATTERNS:
+        redacted = pattern.sub(r"\1********", redacted)
+    return redacted
 
 
 def sanitize_adapter_settings(settings: dict[str, Any]) -> dict[str, Any]:

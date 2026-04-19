@@ -19,6 +19,7 @@ type ProfileDraft = {
   profileName: string;
   adapter: AdapterType;
   isActive: boolean;
+  verifyTls: boolean;
   baseUrl: string;
   token: string;
   timeoutSeconds: string;
@@ -44,6 +45,7 @@ function buildDefaultDraft(profileName = "adapter-profile-1"): ProfileDraft {
     profileName,
     adapter: "fortigate",
     isActive: true,
+    verifyTls: true,
     baseUrl: "",
     token: "",
     timeoutSeconds: "10",
@@ -59,6 +61,12 @@ function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
     profileName: profile.name,
     adapter,
     isActive: profile.is_active,
+    verifyTls: (() => {
+      const rawValue = settings.verify_tls;
+      if (typeof rawValue === "boolean") return rawValue;
+      if (typeof rawValue === "string") return !["false", "0", "no", "off"].includes(rawValue.toLowerCase());
+      return true;
+    })(),
     baseUrl: String((settings.base_url as string) ?? ""),
     // Tokens are intentionally not returned by backend in plaintext.
     // Keep token field empty during edit; backend preserves existing token
@@ -74,6 +82,7 @@ function draftToSettings(draft: ProfileDraft): Record<string, unknown> {
   const settings: Record<string, unknown> = {
     base_url: draft.baseUrl.trim(),
     token: draft.token,
+    verify_tls: draft.verifyTls,
     timeout_seconds: Number(draft.timeoutSeconds) || 10,
     retries: Number(draft.retries) || 3,
     scope: draft.scope.trim(),
@@ -419,6 +428,15 @@ export function AdaptersPage() {
               onChange={(event) => setDraft((current) => ({ ...current, isActive: event.target.checked }))}
             />
             <span className="text-sm text-slate-300">Profile active</span>
+          </label>
+
+          <label className="flex items-center gap-3 rounded-xl border border-border bg-slate-900 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={draft.verifyTls}
+              onChange={(event) => setDraft((current) => ({ ...current, verifyTls: event.target.checked }))}
+            />
+            <span className="text-sm text-slate-300">Verify TLS certificate</span>
           </label>
 
           <div className="grid gap-4 md:grid-cols-2">
