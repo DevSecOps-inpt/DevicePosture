@@ -34,6 +34,7 @@ class PaloAltoAdapter(EnforcementAdapter):
         self._cache_lock = threading.Lock()
         self._group_exists_cache: dict[str, float] = {}
         self._group_members_cache: dict[str, tuple[float, list[str]]] = {}
+        self._api_version_cache: dict[str, tuple[float, str]] = {}
         self._resource_locks_guard = threading.Lock()
         self._resource_locks: dict[str, threading.RLock] = {}
 
@@ -186,6 +187,7 @@ class PaloAltoAdapter(EnforcementAdapter):
         )
         timeout = float(adapter_settings.get("timeout_seconds", HTTP_TIMEOUT_SECONDS))
         retries = int(adapter_settings.get("retries", HTTP_RETRIES))
+        has_explicit_api_version = "api_version" in adapter_settings and adapter_settings.get("api_version") is not None
         api_version = str(adapter_settings.get("api_version") or PALOALTO_API_VERSION).strip() or PALOALTO_API_VERSION
         verify_tls = self._parse_bool(adapter_settings.get("verify_tls"), default=PALOALTO_VERIFY_TLS)
         placeholder_ip = str(adapter_settings.get("placeholder_ip") or PALOALTO_PLACEHOLDER_IP).strip()
@@ -197,6 +199,7 @@ class PaloAltoAdapter(EnforcementAdapter):
             "timeout": timeout,
             "retries": max(1, retries),
             "api_version": api_version,
+            "auto_api_version": not has_explicit_api_version,
             "verify_tls": verify_tls,
             "placeholder_ip": placeholder_ip or PALOALTO_PLACEHOLDER_IP,
         }
@@ -378,10 +381,10 @@ class PaloAltoAdapter(EnforcementAdapter):
         return {"location": "device-group", "device-group": scope}
 
     def _address_path(self, settings: dict) -> str:
-        return f"/restapi/v{settings['api_version']}/Objects/Addresses"
+        return f"/restapi/v{self._effective_api_version(settings)}/Objects/Addresses"
 
     def _group_path(self, settings: dict) -> str:
-        return f"/restapi/v{settings['api_version']}/Objects/AddressGroups"
+        return f"/restapi/v{self._effective_api_version(settings)}/Objects/AddressGroups"
 
     def _cache_key(self, settings: dict, group_name: str) -> str:
         return "|".join(
@@ -440,6 +443,53 @@ class PaloAltoAdapter(EnforcementAdapter):
     def _clear_group_members_cache(self, cache_key: str) -> None:
         with self._cache_lock:
             self._group_members_cache.pop(cache_key, None)
+
+    def _api_version_cache_key(self, settings: dict) -> str:
+        base_url = str(settings.get("base_url") or "").rstrip("/").lower()
+        verify_tls = "1" if bool(settings.get("verify_tls")) else "0"
+        return f"{base_url}|verify_tls={verify_tls}"
+
+    def _extract_api_version_from_sw(self, sw_version: str | None) -> str | None:
+        if not sw_version:
+            return None
+        parts = [part for part in str(sw_version).strip().split(".") if part]
+        if len(parts) < 2:
+            return None
+        major, minor = parts[0], parts[1]
+        if not major.isdigit() or not minor.isdigit():
+            return None
+        return f"{major}.{minor}"
+
+    def _get_cached_detected_api_version(self, settings: dict) -> str | None:
+        cache_key = self._api_version_cache_key(settings)
+        now = time.time()
+        with self._cache_lock:
+            cached = self._api_version_cache.get(cache_key)
+            if cached is not None:
+                expiry, api_version = cached
+                if expiry > now:
+                    return api_version
+                del self._api_version_cache[cache_key]
+
+        try:
+            details = self.check_connection(settings)
+        except requests.RequestException:
+            return None
+        detected = self._extract_api_version_from_sw(details.get("version"))
+        if not detected:
+            return None
+        with self._cache_lock:
+            self._api_version_cache[cache_key] = (time.time() + 3600.0, detected)
+        return detected
+
+    def _effective_api_version(self, settings: dict) -> str:
+        configured = str(settings.get("api_version") or PALOALTO_API_VERSION).strip() or PALOALTO_API_VERSION
+        if not bool(settings.get("auto_api_version", False)):
+            return configured
+        detected = self._get_cached_detected_api_version(settings)
+        if detected:
+            return detected
+        return configured
 
     def _extract_entries(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(payload, dict):
