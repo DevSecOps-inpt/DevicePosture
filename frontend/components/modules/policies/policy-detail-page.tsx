@@ -440,7 +440,23 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
                     assignment_type: "endpoint",
                     assignment_value: assignmentEndpointId
                   });
-                  pushToast({ tone: "success", title: "Endpoint assigned" });
+                  if (policy.policy_scope === "posture") {
+                    try {
+                      await api.evaluateEndpoint(assignmentEndpointId);
+                      pushToast({
+                        tone: "success",
+                        title: "Endpoint assigned and evaluation started"
+                      });
+                    } catch (error) {
+                      pushToast({
+                        tone: "info",
+                        title: "Endpoint assigned, but evaluation failed",
+                        description: error instanceof Error ? error.message : "Unknown error"
+                      });
+                    }
+                  } else {
+                    pushToast({ tone: "success", title: "Endpoint assigned" });
+                  }
                   setAssignmentModalOpen(false);
                   setAssignments(dedupeAssignments(await api.listAssignments(policy.id)));
                 } catch (error) {
