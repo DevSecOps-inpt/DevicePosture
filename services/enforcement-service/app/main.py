@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters import build_registry
 from app.adapters.fortigate import FortiGateAdapter
+from app.adapters.palo_alto import PaloAltoAdapter
 from app.config import DEFAULT_ADAPTER, HTTP_TIMEOUT_SECONDS
 from app.config import (
     ADAPTER_TOKEN_MASK,
@@ -102,6 +103,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=6)
 registry = build_registry()
 fortigate_adapter = FortiGateAdapter()
+palo_alto_adapter = PaloAltoAdapter()
 executor = ThreadPoolExecutor(max_workers=max(1, BACKGROUND_WORKERS))
 logger = logging.getLogger("enforcement-service")
 if not logger.handlers:
@@ -249,6 +251,61 @@ def sanitize_adapter_settings(settings: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
+def normalize_adapter_name(adapter: str | None) -> str:
+    normalized = str(adapter or "").strip().lower()
+    aliases = {
+        "paloalto": "palo_alto",
+        "palo-alto": "palo_alto",
+    }
+    return aliases.get(normalized, normalized or "fortigate")
+
+
+def preserve_sensitive_settings(current_settings: dict[str, Any], incoming_settings: dict[str, Any]) -> dict[str, Any]:
+    merged_settings = {**current_settings, **incoming_settings}
+    candidate_keys = {*(str(key) for key in current_settings.keys()), *(str(key) for key in incoming_settings.keys())}
+    for key in candidate_keys:
+        normalized_key = key.lower()
+        if normalized_key not in SENSITIVE_SETTING_KEYS:
+            continue
+        incoming_value = incoming_settings.get(key)
+        if isinstance(incoming_value, str) and (incoming_value.strip() == "" or incoming_value == ADAPTER_TOKEN_MASK):
+            merged_settings[key] = current_settings.get(key, "")
+    return merged_settings
+
+
+def validate_palo_alto_settings(settings: dict[str, Any]) -> None:
+    group_mappings = settings.get("group_mappings")
+    if group_mappings is None:
+        return
+    if not isinstance(group_mappings, list):
+        raise HTTPException(status_code=422, detail="settings.group_mappings must be a list")
+
+    for index, mapping in enumerate(group_mappings):
+        if not isinstance(mapping, dict):
+            raise HTTPException(status_code=422, detail=f"settings.group_mappings[{index}] must be an object")
+
+        app_group_id = str(mapping.get("app_group_id") or mapping.get("app_group_key") or "").strip()
+        app_group_display_name = str(mapping.get("app_group_display_name") or "").strip()
+        palo_tag_name = str(mapping.get("palo_tag_name") or "").strip()
+        palo_dag_name = mapping.get("palo_dag_name")
+
+        if not app_group_id and not app_group_display_name:
+            raise HTTPException(
+                status_code=422,
+                detail=f"settings.group_mappings[{index}] must include app_group_id or app_group_display_name",
+            )
+        if not palo_tag_name:
+            raise HTTPException(status_code=422, detail=f"settings.group_mappings[{index}] must include palo_tag_name")
+        if palo_dag_name is not None and not isinstance(palo_dag_name, str):
+            raise HTTPException(status_code=422, detail=f"settings.group_mappings[{index}].palo_dag_name must be a string")
+
+
+def validate_adapter_settings(adapter: str, settings: dict[str, Any]) -> None:
+    _validate_adapter_base_url(settings)
+    if normalize_adapter_name(adapter) == "palo_alto":
+        validate_palo_alto_settings(settings)
+
+
 def _is_http_target_allowed(url: str) -> tuple[bool, str | None]:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
@@ -330,16 +387,17 @@ def _circuit_mark_failure(key: str) -> None:
 
 
 def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
+    adapter_name = normalize_adapter_name(item.adapter)
     if not item.is_active:
         return AdapterHealthResponse(
             name=item.name,
-            adapter=item.adapter,
+            adapter=adapter_name,
             is_active=False,
             status="disabled",
             detail="Profile is disabled",
         )
 
-    if item.adapter == "fortigate":
+    if adapter_name == "fortigate":
         settings = fortigate_adapter.build_settings(adapter_settings=item.settings or {})
         # Health probes should be fast and non-blocking for the UI.
         # Do not let per-profile enforcement retry/timeout values stall the dashboard.
@@ -353,7 +411,7 @@ def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
                 detail = f"{detail} (version {version})"
             return AdapterHealthResponse(
                 name=item.name,
-                adapter=item.adapter,
+                adapter=adapter_name,
                 is_active=True,
                 status="healthy",
                 detail=detail,
@@ -375,18 +433,61 @@ def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
                     pass
             return AdapterHealthResponse(
                 name=item.name,
-                adapter=item.adapter,
+                adapter=adapter_name,
                 is_active=True,
                 status="error",
                 detail=detail,
             )
 
+    if adapter_name == "palo_alto":
+        settings = palo_alto_adapter.build_settings(adapter_settings=item.settings or {})
+        settings["retries"] = 1
+        settings["timeout"] = min(float(settings.get("timeout", 5.0)), 3.0)
+        try:
+            details = palo_alto_adapter.check_connection(settings)
+            mapping_checks = details.get("mapping_checks", [])
+            dag_failures = [
+                mapping
+                for mapping in mapping_checks
+                if mapping.get("palo_dag_name") and mapping.get("dag_exists") is False
+            ]
+            detail = "Connected to PAN-OS XML API"
+            if details.get("hostname"):
+                detail = f"{detail} ({details['hostname']})"
+            if details.get("sw_version"):
+                detail = f"{detail}, PAN-OS {details['sw_version']}"
+            if dag_failures:
+                missing = ", ".join(str(item.get("palo_dag_name")) for item in dag_failures)
+                return AdapterHealthResponse(
+                    name=item.name,
+                    adapter=adapter_name,
+                    is_active=True,
+                    status="error",
+                    detail=f"{detail}. Missing configured DAGs in {details.get('vsys')}: {missing}",
+                )
+            mapped_count = len(mapping_checks)
+            return AdapterHealthResponse(
+                name=item.name,
+                adapter=adapter_name,
+                is_active=True,
+                status="healthy",
+                detail=f"{detail}. Validated {mapped_count} Palo Alto group mapping(s) in {details.get('vsys')}.",
+            )
+        except Exception as exc:
+            return AdapterHealthResponse(
+                name=item.name,
+                adapter=adapter_name,
+                is_active=True,
+                status="error",
+                detail=_short_error_message(exc),
+            )
+
     return AdapterHealthResponse(
         name=item.name,
-        adapter=item.adapter,
+        adapter=adapter_name,
         is_active=item.is_active,
         status="unknown",
-        detail=f"No health probe implemented for adapter '{item.adapter}'",
+        detail=f"No health probe implemented for adapter '{adapter_name}'",
     )
 
 
@@ -421,7 +522,7 @@ def to_adapter_config_response(item: AdapterConfigModel) -> AdapterConfigRespons
     return AdapterConfigResponse(
         id=item.id,
         name=item.name,
-        adapter=item.adapter,
+        adapter=normalize_adapter_name(item.adapter),
         is_active=item.is_active,
         settings=sanitize_adapter_settings(item.settings or {}),
         created_at=item.created_at,
@@ -430,14 +531,26 @@ def to_adapter_config_response(item: AdapterConfigModel) -> AdapterConfigRespons
 
 
 def resolve_adapter_settings(db: Session, adapter: str, adapter_profile: str | None) -> tuple[str | None, dict]:
+    normalized_adapter = normalize_adapter_name(adapter)
     query = select(AdapterConfigModel).where(
-        AdapterConfigModel.adapter == adapter,
+        AdapterConfigModel.adapter == normalized_adapter,
         AdapterConfigModel.is_active.is_(True),
     )
     if adapter_profile:
         query = query.where(AdapterConfigModel.name == adapter_profile)
     query = query.order_by(AdapterConfigModel.id.asc())
     config = db.scalar(query)
+    if config is None and adapter_profile:
+        fallback = db.scalar(
+            select(AdapterConfigModel)
+            .where(
+                AdapterConfigModel.name == adapter_profile,
+                AdapterConfigModel.is_active.is_(True),
+            )
+            .order_by(AdapterConfigModel.id.asc())
+        )
+        if fallback is not None and normalize_adapter_name(fallback.adapter) == normalized_adapter:
+            config = fallback
     if config is None:
         return None, {}
     return config.name, config.settings or {}
@@ -778,7 +891,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 )
                 continue
 
-            selected_adapter = str(rendered_parameters.get("adapter") or adapter_name)
+            selected_adapter = normalize_adapter_name(str(rendered_parameters.get("adapter") or adapter_name))
             selected_profile = rendered_parameters.get("adapter_profile") or adapter_profile
             profile_name, settings = resolve_adapter_settings(db, selected_adapter, selected_profile)
             if profile_name is None and selected_profile:
@@ -804,6 +917,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 "policy_id": decision.policy_id,
                 "policy_name": decision.policy_name,
                 "adapter_settings": settings,
+                "group_id": resolved_group.group_id if resolved_group is not None else (str(group_id) if group_id else None),
             }
             lock = _get_group_operation_lock(
                 "adapter-group",
@@ -1256,9 +1370,17 @@ def run_action(
 ) -> EnforcementResult:
     source_ip = request.client.host if request.client else "unknown"
     _apply_rate_limit(f"action:{source_ip}")
-    result = registry.execute(action)
+    normalized_action = action.model_copy(update={"adapter": normalize_adapter_name(action.adapter)})
+    profile_name, settings = resolve_adapter_settings(db, normalized_action.adapter, normalized_action.adapter_profile)
+    merged_decision = dict(normalized_action.decision or {})
+    if settings:
+        merged_decision.setdefault("adapter_settings", settings)
+    if profile_name and normalized_action.adapter_profile != profile_name:
+        normalized_action = normalized_action.model_copy(update={"adapter_profile": profile_name})
+    normalized_action = normalized_action.model_copy(update={"decision": merged_decision})
+    result = registry.execute(normalized_action)
     persist_enforcement_result(db, result)
-    store_audit_event(db, "endpoint.action.requested", action.endpoint_id, action.model_dump(mode="json"))
+    store_audit_event(db, "endpoint.action.requested", normalized_action.endpoint_id, normalized_action.model_dump(mode="json"))
     db.commit()
     return result
 
@@ -1406,14 +1528,14 @@ def upsert_adapter(
 ) -> AdapterConfigResponse:
     item = db.scalar(select(AdapterConfigModel).where(AdapterConfigModel.name == name))
     incoming_settings = payload.settings or {}
+    normalized_adapter = normalize_adapter_name(payload.adapter if payload.adapter is not None else item.adapter if item else "fortigate")
 
     if item is None:
-        if isinstance(incoming_settings.get("token"), str) and incoming_settings.get("token") == ADAPTER_TOKEN_MASK:
-            incoming_settings = {**incoming_settings, "token": ""}
-        _validate_adapter_base_url(incoming_settings)
+        incoming_settings = preserve_sensitive_settings({}, incoming_settings)
+        validate_adapter_settings(normalized_adapter, incoming_settings)
         item = AdapterConfigModel(
             name=name,
-            adapter=payload.adapter or "fortigate",
+            adapter=normalized_adapter,
             is_active=True if payload.is_active is None else payload.is_active,
             settings=incoming_settings,
         )
@@ -1423,16 +1545,13 @@ def upsert_adapter(
         return to_adapter_config_response(item)
 
     if payload.adapter is not None:
-        item.adapter = payload.adapter
+        item.adapter = normalized_adapter
     if payload.is_active is not None:
         item.is_active = payload.is_active
     if payload.settings is not None:
         current_settings = item.settings or {}
-        merged_settings = {**current_settings, **incoming_settings}
-        incoming_token = incoming_settings.get("token")
-        if isinstance(incoming_token, str) and (incoming_token.strip() == "" or incoming_token == ADAPTER_TOKEN_MASK):
-            merged_settings["token"] = current_settings.get("token", "")
-        _validate_adapter_base_url(merged_settings)
+        merged_settings = preserve_sensitive_settings(current_settings, incoming_settings)
+        validate_adapter_settings(item.adapter, merged_settings)
         item.settings = merged_settings
     item.updated_at = utcnow()
     db.commit()

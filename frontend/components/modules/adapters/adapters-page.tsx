@@ -13,7 +13,14 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useToast } from "@/components/ui/toast-provider";
 
-type AdapterType = "fortigate" | "cisco" | "paloalto" | "checkpoint" | "custom";
+type AdapterType = "fortigate" | "cisco" | "palo_alto" | "checkpoint" | "custom";
+
+type PaloAltoGroupMappingDraft = {
+  appGroupId: string;
+  appGroupDisplayName: string;
+  paloTagName: string;
+  paloDagName: string;
+};
 
 type ProfileDraft = {
   profileName: string;
@@ -21,21 +28,25 @@ type ProfileDraft = {
   isActive: boolean;
   baseUrl: string;
   token: string;
+  apiKey: string;
+  verifyTls: boolean;
   timeoutSeconds: string;
   retries: string;
   scope: string;
+  groupMappings: PaloAltoGroupMappingDraft[];
 };
 
 const ADAPTER_OPTIONS: Array<{ value: AdapterType; label: string }> = [
   { value: "fortigate", label: "FortiGate" },
   { value: "cisco", label: "Cisco" },
-  { value: "paloalto", label: "Palo Alto" },
+  { value: "palo_alto", label: "Palo Alto" },
   { value: "checkpoint", label: "Check Point" },
   { value: "custom", label: "Custom API" }
 ];
 
 function defaultScopeForAdapter(adapter: AdapterType): string {
   if (adapter === "fortigate") return "root";
+  if (adapter === "palo_alto") return "vsys1";
   return "";
 }
 
@@ -46,14 +57,27 @@ function buildDefaultDraft(profileName = "adapter-profile-1"): ProfileDraft {
     isActive: true,
     baseUrl: "",
     token: "",
+    apiKey: "",
+    verifyTls: true,
     timeoutSeconds: "10",
     retries: "3",
-    scope: defaultScopeForAdapter("fortigate")
+    scope: defaultScopeForAdapter("fortigate"),
+    groupMappings: []
   };
 }
 
+function normalizeAdapterType(adapter: string | undefined): AdapterType {
+  if (adapter === "paloalto" || adapter === "palo-alto") {
+    return "palo_alto";
+  }
+  if (adapter === "fortigate" || adapter === "cisco" || adapter === "palo_alto" || adapter === "checkpoint") {
+    return adapter;
+  }
+  return "custom";
+}
+
 function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
-  const adapter = (profile.adapter as AdapterType) || "custom";
+  const adapter = normalizeAdapterType(profile.adapter);
   const settings = profile.settings ?? {};
   return {
     profileName: profile.name,
@@ -64,9 +88,23 @@ function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
     // Keep token field empty during edit; backend preserves existing token
     // when the field is left empty.
     token: "",
+    apiKey: "",
+    verifyTls: Boolean((settings.verify_tls as boolean | undefined) ?? true),
     timeoutSeconds: String((settings.timeout_seconds as number | string) ?? "10"),
     retries: String((settings.retries as number | string) ?? "3"),
-    scope: String((settings.scope as string) ?? (settings.vdom as string) ?? defaultScopeForAdapter(adapter))
+    scope: String(
+      (settings.vsys as string) ?? (settings.scope as string) ?? (settings.vdom as string) ?? defaultScopeForAdapter(adapter)
+    ),
+    groupMappings: Array.isArray(settings.group_mappings)
+      ? settings.group_mappings
+          .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+          .map((item) => ({
+            appGroupId: String((item.app_group_id as string) ?? (item.app_group_key as string) ?? ""),
+            appGroupDisplayName: String((item.app_group_display_name as string) ?? ""),
+            paloTagName: String((item.palo_tag_name as string) ?? ""),
+            paloDagName: String((item.palo_dag_name as string) ?? "")
+          }))
+      : []
   };
 }
 
@@ -84,20 +122,45 @@ function draftToSettings(draft: ProfileDraft): Record<string, unknown> {
     settings.vdom = draft.scope.trim() || "root";
     settings.quarantine_group = null;
   }
+  if (draft.adapter === "palo_alto") {
+    settings.api_key = draft.apiKey;
+    settings.verify_tls = draft.verifyTls;
+    settings.vsys = draft.scope.trim() || "vsys1";
+    settings.group_mappings = draft.groupMappings
+      .filter(
+        (item) =>
+          item.appGroupId.trim() ||
+          item.appGroupDisplayName.trim() ||
+          item.paloTagName.trim() ||
+          item.paloDagName.trim()
+      )
+      .map((item) => ({
+        app_group_id: item.appGroupId.trim(),
+        app_group_display_name: item.appGroupDisplayName.trim(),
+        palo_tag_name: item.paloTagName.trim(),
+        palo_dag_name: item.paloDagName.trim() || null
+      }));
+  }
   return settings;
 }
 
 function scopeLabel(adapter: AdapterType): string {
   if (adapter === "fortigate") return "Scope (VDOM)";
-  if (adapter === "paloalto") return "Scope (Device group)";
+  if (adapter === "palo_alto") return "VSYS";
   if (adapter === "checkpoint") return "Scope (Domain)";
   return "Scope";
+}
+
+function credentialLabel(adapter: AdapterType): string {
+  if (adapter === "palo_alto") return "API key";
+  return "API token";
 }
 
 export function AdaptersPage() {
   const { pushToast } = useToast();
   const [serviceHealth, setServiceHealth] = useState<ServiceStatus[]>([]);
   const [profiles, setProfiles] = useState<AdapterConfig[]>([]);
+  const [ipGroups, setIpGroups] = useState<Array<{ group_id: string; name: string }>>([]);
   const [profileHealth, setProfileHealth] = useState<Record<string, AdapterProfileHealth>>({});
   const [loading, setLoading] = useState(true);
   const [refreshingHealth, setRefreshingHealth] = useState(false);
@@ -176,10 +239,15 @@ export function AdaptersPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [health, adapters] = await Promise.all([api.getServiceHealth(), api.listAdapterConfigs()]);
+      const [health, adapters, groups] = await Promise.all([
+        api.getServiceHealth(),
+        api.listAdapterConfigs(),
+        api.listIpGroups().catch(() => [])
+      ]);
       const allProfiles = adapters.sort((a, b) => a.name.localeCompare(b.name));
       setServiceHealth(health);
       setProfiles(allProfiles);
+      setIpGroups(groups.map((group) => ({ group_id: group.group_id, name: group.name })));
       void refreshRuntimeHealth({ quiet: true, profilesSnapshot: allProfiles });
     } catch (error) {
       pushToast({
@@ -397,8 +465,7 @@ export function AdaptersPage() {
                   setDraft((current) => ({
                     ...current,
                     adapter: event.target.value as AdapterType,
-                    scope:
-                      current.scope || defaultScopeForAdapter(event.target.value as AdapterType)
+                    scope: defaultScopeForAdapter(event.target.value as AdapterType)
                   }))
                 }
                 className={inputClassName}
@@ -432,11 +499,17 @@ export function AdaptersPage() {
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-slate-300">API token</span>
+              <span className="text-sm text-slate-300">{credentialLabel(draft.adapter)}</span>
               <input
                 type="password"
-                value={draft.token}
-                onChange={(event) => setDraft((current) => ({ ...current, token: event.target.value }))}
+                value={draft.adapter === "palo_alto" ? draft.apiKey : draft.token}
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current.adapter === "palo_alto"
+                      ? { ...current, apiKey: event.target.value }
+                      : { ...current, token: event.target.value }
+                  )
+                }
                 className={inputClassName}
               />
             </label>
@@ -469,6 +542,148 @@ export function AdaptersPage() {
               className={inputClassName}
             />
           </label>
+
+          {draft.adapter === "palo_alto" ? (
+            <>
+              <label className="flex items-center gap-3 rounded-xl border border-border bg-slate-900 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={draft.verifyTls}
+                  onChange={(event) => setDraft((current) => ({ ...current, verifyTls: event.target.checked }))}
+                />
+                <span className="text-sm text-slate-300">Verify TLS certificate</span>
+              </label>
+
+              <div className="grid gap-3 rounded-xl border border-border bg-slate-950/40 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">Group mappings</p>
+                    <p className="text-xs text-slate-400">
+                      Map existing app IP groups to Palo Alto tag names. Optional DAG names are used for validation only.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        groupMappings: [
+                          ...current.groupMappings,
+                          {
+                            appGroupId: "",
+                            appGroupDisplayName: "",
+                            paloTagName: "",
+                            paloDagName: ""
+                          }
+                        ]
+                      }))
+                    }
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add mapping
+                  </Button>
+                </div>
+
+                {draft.groupMappings.length === 0 ? (
+                  <p className="text-sm text-slate-500">No Palo Alto mappings configured yet.</p>
+                ) : (
+                  draft.groupMappings.map((mapping, index) => (
+                    <div key={`${mapping.appGroupId}-${index}`} className="grid gap-3 rounded-xl border border-border bg-slate-900/40 p-3">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-sm text-slate-300">App group</span>
+                          <select
+                            value={mapping.appGroupId}
+                            onChange={(event) =>
+                              setDraft((current) => {
+                                const nextMappings = [...current.groupMappings];
+                                const selectedGroup = ipGroups.find((group) => group.group_id === event.target.value);
+                                nextMappings[index] = {
+                                  ...nextMappings[index],
+                                  appGroupId: event.target.value,
+                                  appGroupDisplayName: selectedGroup?.name ?? nextMappings[index].appGroupDisplayName
+                                };
+                                return { ...current, groupMappings: nextMappings };
+                              })
+                            }
+                            className={inputClassName}
+                          >
+                            <option value="">Select app group</option>
+                            {ipGroups.map((group) => (
+                              <option key={group.group_id} value={group.group_id}>
+                                {group.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-sm text-slate-300">App group display name</span>
+                          <input
+                            value={mapping.appGroupDisplayName}
+                            onChange={(event) =>
+                              setDraft((current) => {
+                                const nextMappings = [...current.groupMappings];
+                                nextMappings[index] = { ...nextMappings[index], appGroupDisplayName: event.target.value };
+                                return { ...current, groupMappings: nextMappings };
+                              })
+                            }
+                            className={inputClassName}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-sm text-slate-300">Palo tag name</span>
+                          <input
+                            value={mapping.paloTagName}
+                            onChange={(event) =>
+                              setDraft((current) => {
+                                const nextMappings = [...current.groupMappings];
+                                nextMappings[index] = { ...nextMappings[index], paloTagName: event.target.value };
+                                return { ...current, groupMappings: nextMappings };
+                              })
+                            }
+                            placeholder="quarantine_tag"
+                            className={inputClassName}
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-sm text-slate-300">Palo DAG name (optional)</span>
+                          <input
+                            value={mapping.paloDagName}
+                            onChange={(event) =>
+                              setDraft((current) => {
+                                const nextMappings = [...current.groupMappings];
+                                nextMappings[index] = { ...nextMappings[index], paloDagName: event.target.value };
+                                return { ...current, groupMappings: nextMappings };
+                              })
+                            }
+                            placeholder="Existing DAG object name"
+                            className={inputClassName}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <Button
+                          variant="danger"
+                          onClick={() =>
+                            setDraft((current) => ({
+                              ...current,
+                              groupMappings: current.groupMappings.filter((_, candidateIndex) => candidateIndex !== index)
+                            }))
+                          }
+                        >
+                          Remove mapping
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       </Modal>
     </div>

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class EnforcementAction(BaseModel):
     adapter: str = "fortigate"
-    action: Literal["quarantine", "allow", "block", "remove_from_group", "sync_group"] = "quarantine"
+    action: Literal["quarantine", "allow", "block", "remove_from_group", "sync_group", "move_between_groups"] = "quarantine"
     endpoint_id: str
     ip_address: str
     group_name: str | None = None
