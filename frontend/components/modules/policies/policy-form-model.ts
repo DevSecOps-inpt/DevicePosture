@@ -762,11 +762,12 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
 }
 
 export function buildPolicyPayload(state: PolicyEditorState) {
+  const isLifecyclePolicy = state.policyType === "active_to_inactive";
   return {
     name: state.name.trim(),
     description: state.description.trim() || null,
-    policy_scope: "lifecycle" as const,
-    lifecycle_event_type: state.policyType,
+    policy_scope: isLifecyclePolicy ? ("lifecycle" as const) : ("posture" as const),
+    lifecycle_event_type: isLifecyclePolicy ? state.policyType : null,
     target_action: state.targetAction,
     is_active: state.isActive,
     conditions: buildPolicyConditions(state),
