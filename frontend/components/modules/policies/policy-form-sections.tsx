@@ -9,8 +9,6 @@ import {
   MEMBERSHIP_OPERATORS,
   NUMERIC_OPERATORS,
   OS_NAME_SUGGESTIONS,
-  type AdapterAction,
-  type GroupAction,
   type PolicyEditorState
 } from "@/components/modules/policies/policy-form-model";
 
@@ -185,6 +183,9 @@ export function PolicyConditionsSection({
       : ldapDirectoryGroups.filter(
           (group) => group.provider_id === value.conditions.domainLdapProviderId
         );
+  const selectedRequiredDomainGroups = selectedDomainProviderGroups.filter((group) =>
+    value.conditions.domainRequiredGroupIds.includes(group.id)
+  );
 
   return (
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
@@ -514,32 +515,85 @@ export function PolicyConditionsSection({
           </p>
           <div className="mt-2 grid gap-2">
             {selectedDomainProviderGroups.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                No cached LDAP groups for this provider. Run directory group sync in Extensions.
-              </p>
+              <MultiValueEditor
+                value={value.conditions.domainRequiredGroupDns.join(", ")}
+                onChange={(next) =>
+                  updateConditions(onChange, {
+                    domainRequiredGroupDns: parseValueList(next).map((item) => item.toLowerCase()),
+                    domainRequiredGroupIds: []
+                  })
+                }
+                disabled={!value.conditions.domainMembershipEnabled}
+                placeholder="LDAP group DN"
+              />
             ) : (
-              selectedDomainProviderGroups.map((group) => {
-                const checked = value.conditions.domainRequiredGroupIds.includes(group.id);
-                return (
-                  <label key={group.id} className="flex items-center gap-2 text-sm text-slate-200">
-                    <input
-                      type="checkbox"
-                      disabled={!value.conditions.domainMembershipEnabled}
-                      checked={checked}
-                      onChange={(event) =>
-                        updateConditions(onChange, {
-                          domainRequiredGroupIds: event.target.checked
-                            ? [...value.conditions.domainRequiredGroupIds, group.id]
-                            : value.conditions.domainRequiredGroupIds.filter((item) => item !== group.id),
-                          domainRequiredGroupDns: []
-                        })
-                      }
-                    />
-                    <span>{group.group_name}</span>
-                    <span className="text-xs text-slate-500">{group.group_dn ?? ""}</span>
-                  </label>
-                );
-              })
+              <>
+                <select
+                  value=""
+                  onChange={(event) => {
+                    const selectedId = Number(event.target.value);
+                    if (!selectedId || value.conditions.domainRequiredGroupIds.includes(selectedId)) {
+                      return;
+                    }
+                    updateConditions(onChange, {
+                      domainRequiredGroupIds: [...value.conditions.domainRequiredGroupIds, selectedId],
+                      domainRequiredGroupDns: []
+                    });
+                  }}
+                  disabled={!value.conditions.domainMembershipEnabled}
+                  className={inputClassName}
+                >
+                  <option value="">Add cached LDAP group</option>
+                  {selectedDomainProviderGroups.map((group) => (
+                    <option key={group.id} value={String(group.id)}>
+                      {group.group_name} {group.group_dn ? `(${group.group_dn})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex flex-wrap gap-2">
+                  {selectedRequiredDomainGroups.length === 0 ? (
+                    <span className="text-xs text-slate-500">No LDAP groups selected.</span>
+                  ) : (
+                    selectedRequiredDomainGroups.map((group) => (
+                      <span
+                        key={group.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-border bg-slate-950 px-3 py-1 text-xs text-slate-200"
+                      >
+                        {group.group_name}
+                        <button
+                          type="button"
+                          disabled={!value.conditions.domainMembershipEnabled}
+                          onClick={() =>
+                            updateConditions(onChange, {
+                              domainRequiredGroupIds: value.conditions.domainRequiredGroupIds.filter(
+                                (item) => item !== group.id
+                              )
+                            })
+                          }
+                          className="text-slate-400 hover:text-slate-100 disabled:opacity-40"
+                          aria-label={`Remove ${group.group_name}`}
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+                <MultiValueEditor
+                  value={value.conditions.domainRequiredGroupDns.join(", ")}
+                  onChange={(next) =>
+                    updateConditions(onChange, {
+                      domainRequiredGroupDns: parseValueList(next).map((item) => item.toLowerCase()),
+                      domainRequiredGroupIds: []
+                    })
+                  }
+                  disabled={
+                    !value.conditions.domainMembershipEnabled ||
+                    value.conditions.domainRequiredGroupIds.length > 0
+                  }
+                  placeholder="Manual LDAP group DN"
+                />
+              </>
             )}
           </div>
         </div>
@@ -553,63 +607,6 @@ export function PolicyConditionsSection({
   );
 }
 
-function ObjectActionSelect({
-  value,
-  onChange,
-  label,
-  disabled = false
-}: {
-  value: GroupAction;
-  onChange: (next: GroupAction) => void;
-  label: string;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="space-y-2">
-      <span className="text-sm text-slate-300">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as GroupAction)}
-        disabled={disabled}
-        className={inputClassName}
-      >
-        <option value="none">No action</option>
-        <option value="add">Add IP to group</option>
-        <option value="remove">Remove IP from group</option>
-      </select>
-    </label>
-  );
-}
-
-function AdapterActionSelect({
-  value,
-  onChange,
-  label,
-  disabled = false
-}: {
-  value: AdapterAction;
-  onChange: (next: AdapterAction) => void;
-  label: string;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="space-y-2">
-      <span className="text-sm text-slate-300">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as AdapterAction)}
-        disabled={disabled}
-        className={inputClassName}
-      >
-        <option value="none">No action</option>
-        <option value="add_ip">Add IP to group</option>
-        <option value="remove_ip">Remove IP from group</option>
-        <option value="push_group">Push new IP group</option>
-      </select>
-    </label>
-  );
-}
-
 export function PolicyExecutionSection({
   value,
   onChange,
@@ -617,14 +614,6 @@ export function PolicyExecutionSection({
   ipGroups = []
 }: PolicyFormSectionsProps) {
   const isActiveToInactivePolicy = value.policyType === "active_to_inactive";
-  const transitionObjectAction =
-    value.execution.objectOnNonCompliant !== "none"
-      ? value.execution.objectOnNonCompliant
-      : value.execution.objectOnCompliant;
-  const transitionAdapterAction =
-    value.execution.adapterOnNonCompliant !== "none"
-      ? value.execution.adapterOnNonCompliant
-      : value.execution.adapterOnCompliant;
 
   return (
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
@@ -692,53 +681,39 @@ export function PolicyExecutionSection({
         </label>
       </div>
 
-      {isActiveToInactivePolicy ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          <ObjectActionSelect
-            label="On active -> inactive: object action"
-            value={transitionObjectAction}
-            onChange={(next) =>
-              updateExecution(onChange, {
-                objectOnCompliant: next,
-                objectOnNonCompliant: next
-              })
-            }
-          />
-          <AdapterActionSelect
-            label="On active -> inactive: adapter action"
-            value={transitionAdapterAction}
-            onChange={(next) =>
-              updateExecution(onChange, {
-                adapterOnCompliant: next,
-                adapterOnNonCompliant: next
-              })
-            }
-          />
+      <div className="rounded-xl border border-border bg-slate-900/40 p-3">
+        <div className="grid gap-3 md:grid-cols-[260px_1fr]">
+          <label className="space-y-2">
+            <span className="text-sm text-slate-300">Enforcement behavior</span>
+            <select
+              value={value.execution.enforcementMode}
+              onChange={(event) =>
+                updateExecution(onChange, {
+                  enforcementMode: event.target.value as PolicyEditorState["execution"]["enforcementMode"]
+                })
+              }
+              className={inputClassName}
+            >
+              <option value="managed_group">Manage endpoint membership</option>
+              <option value="none">No adapter/object action</option>
+              <option value="custom">Keep existing custom action plan</option>
+            </select>
+          </label>
+          <div className="rounded-xl border border-border bg-slate-950/45 p-3 text-sm text-slate-300">
+            {value.execution.enforcementMode === "managed_group" ? (
+              isActiveToInactivePolicy ? (
+                <p>When the endpoint becomes inactive, the app adds its IP to the selected group and reconciles that group through the adapter.</p>
+              ) : (
+                <p>When non-compliant, the app adds the endpoint IP and reconciles the adapter group. When compliant, it removes the local membership and unregisters the IP from the adapter.</p>
+              )
+            ) : value.execution.enforcementMode === "custom" ? (
+              <p>This policy has a legacy custom action plan. Saving keeps the existing low-level object and adapter actions.</p>
+            ) : (
+              <p>The policy evaluates only. It will not change local IP groups or firewall adapters.</p>
+            )}
+          </div>
         </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          <ObjectActionSelect
-            label="On compliant: object action"
-            value={value.execution.objectOnCompliant}
-            onChange={(next) => updateExecution(onChange, { objectOnCompliant: next })}
-          />
-          <ObjectActionSelect
-            label="On non-compliant: object action"
-            value={value.execution.objectOnNonCompliant}
-            onChange={(next) => updateExecution(onChange, { objectOnNonCompliant: next })}
-          />
-          <AdapterActionSelect
-            label="On compliant: adapter action"
-            value={value.execution.adapterOnCompliant}
-            onChange={(next) => updateExecution(onChange, { adapterOnCompliant: next })}
-          />
-          <AdapterActionSelect
-            label="On non-compliant: adapter action"
-            value={value.execution.adapterOnNonCompliant}
-            onChange={(next) => updateExecution(onChange, { adapterOnNonCompliant: next })}
-          />
-        </div>
-      )}
+      </div>
 
       <div className="rounded-xl border border-border bg-slate-900/40 p-3">
         <div className="flex items-center justify-between gap-3">

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Copy, Save, ToggleLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, RefreshCcw, Save, ToggleLeft, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type {
   AdapterConfig,
@@ -52,6 +52,8 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
   const [ldapDirectoryGroups, setLdapDirectoryGroups] = useState<DirectoryGroup[]>([]);
   const [adapterProfiles, setAdapterProfiles] = useState<AdapterConfig[]>([]);
   const [ipGroups, setIpGroups] = useState<IpGroup[]>([]);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [reevaluatingPolicy, setReevaluatingPolicy] = useState(false);
 
   const dedupeAssignments = (items: PolicyAssignment[]) =>
     items.filter(
@@ -124,6 +126,81 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
       loadData();
     }
   }, [id]);
+
+  const resolveAffectedEndpointIds = async (targetPolicyId: number) => {
+    const endpointIds = endpointOptions.map((endpoint) => endpoint.endpoint_id);
+    if (endpointIds.length === 0) {
+      return [] as string[];
+    }
+    const assignmentsByEndpoint = (await api.getEndpointAssignedPoliciesBatch(endpointIds).catch(() => ({}))) as Record<
+      string,
+      Array<{ policy_id: number }>
+    >;
+    const matched = endpointIds.filter((endpointId) =>
+      (assignmentsByEndpoint[endpointId] ?? []).some((assignment) => assignment.policy_id === targetPolicyId)
+    );
+    if (matched.length > 0) {
+      return matched;
+    }
+    return assignments
+      .filter((assignment) => assignment.assignment_type === "endpoint")
+      .map((assignment) => assignment.assignment_value);
+  };
+
+  const reevaluateAffectedEndpoints = async (targetPolicyId: number) => {
+    const affectedEndpointIds = await resolveAffectedEndpointIds(targetPolicyId);
+    if (affectedEndpointIds.length === 0) {
+      pushToast({
+        tone: "info",
+        title: "No assigned endpoints found",
+        description: "The policy was saved, but no currently assigned endpoints were available for evaluation."
+      });
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      affectedEndpointIds.map((endpointId) => api.evaluateEndpoint(endpointId))
+    );
+    const succeeded = results.filter((result) => result.status === "fulfilled").length;
+    const failed = results.length - succeeded;
+    pushToast({
+      tone: failed > 0 ? "info" : "success",
+      title: `Re-evaluated ${succeeded} endpoint${succeeded === 1 ? "" : "s"}`,
+      description: failed > 0 ? `${failed} endpoint${failed === 1 ? "" : "s"} failed. Check service logs.` : undefined
+    });
+  };
+
+  const savePolicy = async (options?: { reevaluate?: boolean }) => {
+    if (!policy) return;
+    const validationError = validatePolicyEditorState(formState);
+    if (validationError) {
+      pushToast({ tone: "error", title: "Invalid policy", description: validationError });
+      return;
+    }
+    setSavingPolicy(true);
+    if (options?.reevaluate) {
+      setReevaluatingPolicy(true);
+    }
+    try {
+      const payload = buildPolicyPayload(formState);
+      const updated = await api.updatePolicy(policy.id, payload);
+      setPolicy(updated);
+      setFormState(policyToEditorState(updated));
+      pushToast({ tone: "success", title: "Policy saved" });
+      if (options?.reevaluate && updated.policy_scope !== "lifecycle") {
+        await reevaluateAffectedEndpoints(updated.id);
+      }
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: options?.reevaluate ? "Failed to save or re-evaluate policy" : "Failed to save policy",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    } finally {
+      setSavingPolicy(false);
+      setReevaluatingPolicy(false);
+    }
+  };
 
   if (!loading && !policy) {
     return (
@@ -206,30 +283,21 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
             </Button>
             <Button
               onClick={async () => {
-                if (!policy) return;
-                const validationError = validatePolicyEditorState(formState);
-                if (validationError) {
-                  pushToast({ tone: "error", title: "Invalid policy", description: validationError });
-                  return;
-                }
-                try {
-                  const payload = buildPolicyPayload(formState);
-                  const updated = await api.updatePolicy(policy.id, payload);
-                  setPolicy(updated);
-                  setFormState(policyToEditorState(updated));
-                  pushToast({ tone: "success", title: "Policy saved" });
-                } catch (error) {
-                  pushToast({
-                    tone: "error",
-                    title: "Failed to save policy",
-                    description: error instanceof Error ? error.message : "Unknown error"
-                  });
-                }
+                await savePolicy();
               }}
-              disabled={!policy || !formState.name.trim()}
+              disabled={!policy || !formState.name.trim() || savingPolicy}
             >
               <Save className="mr-2 h-4 w-4" />
-              Save changes
+              {savingPolicy && !reevaluatingPolicy ? "Saving..." : "Save changes"}
+            </Button>
+            <Button
+              onClick={async () => {
+                await savePolicy({ reevaluate: true });
+              }}
+              disabled={!policy || !formState.name.trim() || savingPolicy || policy?.policy_scope === "lifecycle"}
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              {reevaluatingPolicy ? "Saving and re-evaluating..." : "Save and re-evaluate"}
             </Button>
           </>
         }

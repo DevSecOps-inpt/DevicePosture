@@ -9,6 +9,7 @@ export type NumericOperator =
   | "less than or equal";
 export type GroupAction = "none" | "add" | "remove";
 export type AdapterAction = "none" | "push_group" | "add_ip" | "remove_ip";
+export type EnforcementMode = "none" | "managed_group" | "custom";
 export type ExecutionIpGroupOperator = "exists in" | "does not exist in";
 
 export const MEMBERSHIP_OPERATORS: MembershipOperator[] = ["exists in", "does not exist in", "contains"];
@@ -81,6 +82,7 @@ export type PolicyEditorState = {
     objectOnNonCompliant: GroupAction;
     adapterOnCompliant: AdapterAction;
     adapterOnNonCompliant: AdapterAction;
+    enforcementMode: EnforcementMode;
     gateEnabled: boolean;
     gateGroupName: string;
     gateOperator: ExecutionIpGroupOperator;
@@ -129,6 +131,7 @@ export function defaultPolicyEditorState(): PolicyEditorState {
       objectOnNonCompliant: "add",
       adapterOnCompliant: "none",
       adapterOnNonCompliant: "push_group",
+      enforcementMode: "managed_group",
       gateEnabled: false,
       gateGroupName: "",
       gateOperator: "exists in"
@@ -254,6 +257,49 @@ function resolveAdapterAction(
     return "remove_ip";
   }
   return "none";
+}
+
+function hasAction(
+  actions: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined,
+  actionType: PolicyActionType
+): boolean {
+  return Boolean(actions?.some((item) => item.enabled !== false && item.action_type === actionType));
+}
+
+function hasAnyExecutionAction(
+  actions: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined
+): boolean {
+  return Boolean(actions?.some((item) => item.enabled !== false));
+}
+
+function resolveEnforcementMode(
+  policyType: PolicyType,
+  onCompliant: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined,
+  onNonCompliant: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined
+): EnforcementMode {
+  if (!hasAnyExecutionAction(onCompliant) && !hasAnyExecutionAction(onNonCompliant)) {
+    return "none";
+  }
+
+  if (policyType === "active_to_inactive") {
+    const eventActions = hasAnyExecutionAction(onNonCompliant) ? onNonCompliant : onCompliant;
+    const isManagedInactiveAction =
+      hasAction(eventActions, "object.add_ip_to_group") &&
+      hasAction(eventActions, "adapter.sync_group") &&
+      !hasAction(eventActions, "object.remove_ip_from_group") &&
+      !hasAction(eventActions, "adapter.remove_ip_from_group");
+    return isManagedInactiveAction ? "managed_group" : "custom";
+  }
+
+  const isManagedPostureAction =
+    hasAction(onNonCompliant, "object.add_ip_to_group") &&
+    hasAction(onNonCompliant, "adapter.sync_group") &&
+    hasAction(onCompliant, "object.remove_ip_from_group") &&
+    hasAction(onCompliant, "adapter.remove_ip_from_group") &&
+    !hasAction(onNonCompliant, "object.remove_ip_from_group") &&
+    !hasAction(onCompliant, "adapter.sync_group");
+
+  return isManagedPostureAction ? "managed_group" : "custom";
 }
 
 function parseGroupId(value: unknown): number | "" {
@@ -498,6 +544,7 @@ export function policyToEditorState(policy: Policy): PolicyEditorState {
     );
     state.execution.adapterOnCompliant = resolveAdapterAction(onCompliant);
     state.execution.adapterOnNonCompliant = resolveAdapterAction(onNonCompliant);
+    state.execution.enforcementMode = resolveEnforcementMode(state.policyType, onCompliant, onNonCompliant);
     const gate = execution.execution_gate?.ip_group_condition;
     if (gate) {
       state.execution.gateEnabled = Boolean(gate.enabled);
@@ -663,6 +710,51 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
   }> = [];
   const objectGroup = state.execution.objectGroup.trim();
   const objectGroupId = state.execution.objectGroupId.trim();
+  const baseExecution = {
+    adapter: state.execution.adapter.trim() || "fortigate",
+    adapter_profile: state.execution.adapterProfile.trim() || null,
+    object_group: objectGroup || null,
+    execution_gate:
+      state.execution.gateEnabled && state.execution.gateGroupName.trim()
+        ? {
+            ip_group_condition: {
+              enabled: true,
+              group_name: state.execution.gateGroupName.trim(),
+              operator: state.execution.gateOperator
+            }
+          }
+        : null
+  };
+
+  if (state.execution.enforcementMode === "none") {
+    return {
+      ...baseExecution,
+      on_compliant: [],
+      on_non_compliant: []
+    };
+  }
+
+  if (state.execution.enforcementMode === "managed_group") {
+    const addAndSync = [
+      executionAction("object.add_ip_to_group", objectGroup, objectGroupId),
+      executionAction("adapter.sync_group", objectGroup, objectGroupId)
+    ];
+    if (state.policyType === "active_to_inactive") {
+      return {
+        ...baseExecution,
+        on_compliant: addAndSync,
+        on_non_compliant: addAndSync
+      };
+    }
+    return {
+      ...baseExecution,
+      on_compliant: [
+        executionAction("object.remove_ip_from_group", objectGroup, objectGroupId),
+        executionAction("adapter.remove_ip_from_group", objectGroup, objectGroupId)
+      ],
+      on_non_compliant: addAndSync
+    };
+  }
 
   const transitionObjectAction: GroupAction =
     state.execution.objectOnNonCompliant !== "none"
@@ -696,19 +788,7 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
     }
 
     return {
-      adapter: state.execution.adapter.trim() || "fortigate",
-      adapter_profile: state.execution.adapterProfile.trim() || null,
-      object_group: objectGroup || null,
-      execution_gate:
-        state.execution.gateEnabled && state.execution.gateGroupName.trim()
-          ? {
-              ip_group_condition: {
-                enabled: true,
-                group_name: state.execution.gateGroupName.trim(),
-                operator: state.execution.gateOperator
-              }
-            }
-          : null,
+      ...baseExecution,
       on_compliant: eventActions,
       on_non_compliant: eventActions
     };
@@ -743,19 +823,7 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
   }
 
   return {
-    adapter: state.execution.adapter.trim() || "fortigate",
-    adapter_profile: state.execution.adapterProfile.trim() || null,
-    object_group: objectGroup || null,
-    execution_gate:
-      state.execution.gateEnabled && state.execution.gateGroupName.trim()
-        ? {
-            ip_group_condition: {
-              enabled: true,
-              group_name: state.execution.gateGroupName.trim(),
-              operator: state.execution.gateOperator
-            }
-          }
-        : null,
+    ...baseExecution,
     on_compliant: onCompliant,
     on_non_compliant: onNonCompliant
   };
@@ -812,6 +880,7 @@ function emptyPolicyEditorStateForExistingPolicy(): PolicyEditorState {
       objectOnNonCompliant: "none",
       adapterOnCompliant: "none",
       adapterOnNonCompliant: "none",
+      enforcementMode: "none",
       gateEnabled: false,
       gateGroupName: "",
       gateOperator: "exists in"
@@ -854,6 +923,7 @@ export function validatePolicyEditorState(state: PolicyEditorState): string | nu
     }
   }
   const needsObjectGroup =
+    state.execution.enforcementMode === "managed_group" ||
     state.execution.objectOnCompliant !== "none" ||
     state.execution.objectOnNonCompliant !== "none" ||
     state.execution.adapterOnCompliant !== "none" ||

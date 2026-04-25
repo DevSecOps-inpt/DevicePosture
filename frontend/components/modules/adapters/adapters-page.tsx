@@ -30,7 +30,6 @@ type ProfileDraft = {
   baseUrl: string;
   token: string;
   apiKey: string;
-  verifyTls: boolean;
   timeoutSeconds: string;
   retries: string;
   scope: string;
@@ -60,7 +59,6 @@ function buildDefaultDraft(profileName = "adapter-profile-1"): ProfileDraft {
     baseUrl: "",
     token: "",
     apiKey: "",
-    verifyTls: true,
     timeoutSeconds: "10",
     retries: "3",
     scope: defaultScopeForAdapter("fortigate"),
@@ -97,7 +95,6 @@ function buildDraftFromProfile(profile: AdapterConfig): ProfileDraft {
     // when the field is left empty.
     token: "",
     apiKey: "",
-    verifyTls: Boolean((settings.verify_tls as boolean | undefined) ?? true),
     timeoutSeconds: String((settings.timeout_seconds as number | string) ?? "10"),
     retries: String((settings.retries as number | string) ?? "3"),
     scope: String(

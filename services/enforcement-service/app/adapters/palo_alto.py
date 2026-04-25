@@ -82,6 +82,14 @@ class PaloAltoXmlApiClient:
         self._session.trust_env = False
 
     def _response_message(self, root: ET.Element) -> str:
+        attribute_messages = [
+            item.get("message", "").strip()
+            for item in root.findall(".//*[@message]")
+            if item.get("message", "").strip()
+        ]
+        if attribute_messages:
+            return "; ".join(attribute_messages)
+
         lines = [line.text.strip() for line in root.findall(".//line") if line.text and line.text.strip()]
         if lines:
             return "; ".join(lines)
@@ -181,7 +189,13 @@ class PaloAltoXmlApiClient:
         attributes = {"timeout": str(timeout_seconds)} if timeout_seconds and timeout_seconds > 0 else {}
         member = ET.SubElement(tag, "member", attributes)
         member.text = tag_name
-        self.user_id_message(ET.tostring(root, encoding="unicode"), vsys=vsys)
+        try:
+            self.user_id_message(ET.tostring(root, encoding="unicode"), vsys=vsys)
+        except PaloAltoAdapterError as exc:
+            message = str(exc).lower()
+            if "already exists" in message and "ignore" in message:
+                return
+            raise
 
     def unregister_ip_tag(self, *, ip_address: str, tag_name: str, vsys: str) -> None:
         root = ET.Element("uid-message")
@@ -193,7 +207,13 @@ class PaloAltoXmlApiClient:
         tag = ET.SubElement(entry, "tag")
         member = ET.SubElement(tag, "member")
         member.text = tag_name
-        self.user_id_message(ET.tostring(root, encoding="unicode"), vsys=vsys)
+        try:
+            self.user_id_message(ET.tostring(root, encoding="unicode"), vsys=vsys)
+        except PaloAltoAdapterError as exc:
+            message = str(exc).lower()
+            if ("does not exist" in message or "not found" in message or "not exist" in message) and "ignore" in message:
+                return
+            raise
 
 
 class PaloAltoAdapter(EnforcementAdapter):
