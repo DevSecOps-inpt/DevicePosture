@@ -259,6 +259,36 @@ function resolveAdapterAction(
   return "none";
 }
 
+function generatedAdapterActionForGroupAction(action: GroupAction): AdapterAction {
+  if (action === "add") {
+    return "push_group";
+  }
+  if (action === "remove") {
+    return "remove_ip";
+  }
+  return "none";
+}
+
+function generatedActionsForGroupAction(
+  action: GroupAction,
+  objectGroup: string,
+  objectGroupId: string
+): Array<{ action_type: PolicyActionType; enabled: boolean; parameters: Record<string, unknown> }> {
+  if (action === "add") {
+    return [
+      executionAction("object.add_ip_to_group", objectGroup, objectGroupId),
+      executionAction("adapter.sync_group", objectGroup, objectGroupId)
+    ];
+  }
+  if (action === "remove") {
+    return [
+      executionAction("object.remove_ip_from_group", objectGroup, objectGroupId),
+      executionAction("adapter.remove_ip_from_group", objectGroup, objectGroupId)
+    ];
+  }
+  return [];
+}
+
 function hasAction(
   actions: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined,
   actionType: PolicyActionType
@@ -272,6 +302,35 @@ function hasAnyExecutionAction(
   return Boolean(actions?.some((item) => item.enabled !== false));
 }
 
+function isGeneratedOutcomeAction(
+  actions: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined,
+  action: GroupAction
+): boolean {
+  const enabledActions = actions?.filter((item) => item.enabled !== false) ?? [];
+  const expectedAdapterAction = generatedAdapterActionForGroupAction(action);
+  const allowedActions = new Set<PolicyActionType>();
+
+  if (action === "add") {
+    allowedActions.add("object.add_ip_to_group");
+    allowedActions.add("adapter.sync_group");
+  } else if (action === "remove") {
+    allowedActions.add("object.remove_ip_from_group");
+    allowedActions.add("adapter.remove_ip_from_group");
+  }
+
+  if (enabledActions.some((item) => !allowedActions.has(item.action_type))) {
+    return false;
+  }
+  if (action === "none") {
+    return enabledActions.length === 0;
+  }
+
+  return (
+    hasAction(actions, action === "add" ? "object.add_ip_to_group" : "object.remove_ip_from_group") &&
+    hasAction(actions, expectedAdapterAction === "push_group" ? "adapter.sync_group" : "adapter.remove_ip_from_group")
+  );
+}
+
 function resolveEnforcementMode(
   policyType: PolicyType,
   onCompliant: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }> | undefined,
@@ -283,23 +342,29 @@ function resolveEnforcementMode(
 
   if (policyType === "active_to_inactive") {
     const eventActions = hasAnyExecutionAction(onNonCompliant) ? onNonCompliant : onCompliant;
-    const isManagedInactiveAction =
-      hasAction(eventActions, "object.add_ip_to_group") &&
-      hasAction(eventActions, "adapter.sync_group") &&
-      !hasAction(eventActions, "object.remove_ip_from_group") &&
-      !hasAction(eventActions, "adapter.remove_ip_from_group");
-    return isManagedInactiveAction ? "managed_group" : "custom";
+    const objectAction = resolveGroupAction(
+      eventActions ?? [],
+      "object.add_ip_to_group",
+      "object.remove_ip_from_group"
+    );
+    return isGeneratedOutcomeAction(eventActions, objectAction) ? "managed_group" : "custom";
   }
 
-  const isManagedPostureAction =
-    hasAction(onNonCompliant, "object.add_ip_to_group") &&
-    hasAction(onNonCompliant, "adapter.sync_group") &&
-    hasAction(onCompliant, "object.remove_ip_from_group") &&
-    hasAction(onCompliant, "adapter.remove_ip_from_group") &&
-    !hasAction(onNonCompliant, "object.remove_ip_from_group") &&
-    !hasAction(onCompliant, "adapter.sync_group");
+  const compliantAction = resolveGroupAction(
+    onCompliant ?? [],
+    "object.add_ip_to_group",
+    "object.remove_ip_from_group"
+  );
+  const nonCompliantAction = resolveGroupAction(
+    onNonCompliant ?? [],
+    "object.add_ip_to_group",
+    "object.remove_ip_from_group"
+  );
 
-  return isManagedPostureAction ? "managed_group" : "custom";
+  return isGeneratedOutcomeAction(onCompliant, compliantAction) &&
+    isGeneratedOutcomeAction(onNonCompliant, nonCompliantAction)
+    ? "managed_group"
+    : "custom";
 }
 
 function parseGroupId(value: unknown): number | "" {
@@ -735,24 +800,30 @@ export function buildPolicyExecution(state: PolicyEditorState): NonNullable<Poli
   }
 
   if (state.execution.enforcementMode === "managed_group") {
-    const addAndSync = [
-      executionAction("object.add_ip_to_group", objectGroup, objectGroupId),
-      executionAction("adapter.sync_group", objectGroup, objectGroupId)
-    ];
     if (state.policyType === "active_to_inactive") {
+      const transitionAction: GroupAction =
+        state.execution.objectOnNonCompliant !== "none"
+          ? state.execution.objectOnNonCompliant
+          : state.execution.objectOnCompliant;
+      const eventActions = generatedActionsForGroupAction(transitionAction, objectGroup, objectGroupId);
       return {
         ...baseExecution,
-        on_compliant: addAndSync,
-        on_non_compliant: addAndSync
+        on_compliant: eventActions,
+        on_non_compliant: eventActions
       };
     }
     return {
       ...baseExecution,
-      on_compliant: [
-        executionAction("object.remove_ip_from_group", objectGroup, objectGroupId),
-        executionAction("adapter.remove_ip_from_group", objectGroup, objectGroupId)
-      ],
-      on_non_compliant: addAndSync
+      on_compliant: generatedActionsForGroupAction(
+        state.execution.objectOnCompliant,
+        objectGroup,
+        objectGroupId
+      ),
+      on_non_compliant: generatedActionsForGroupAction(
+        state.execution.objectOnNonCompliant,
+        objectGroup,
+        objectGroupId
+      )
     };
   }
 

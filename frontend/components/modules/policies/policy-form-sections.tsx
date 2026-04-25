@@ -9,11 +9,18 @@ import {
   MEMBERSHIP_OPERATORS,
   NUMERIC_OPERATORS,
   OS_NAME_SUGGESTIONS,
+  type GroupAction,
   type PolicyEditorState
 } from "@/components/modules/policies/policy-form-model";
 
 const inputClassName =
   "w-full rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500";
+
+const groupActionOptions: Array<{ value: GroupAction; label: string }> = [
+  { value: "none", label: "No change" },
+  { value: "add", label: "Add endpoint to group" },
+  { value: "remove", label: "Remove endpoint from group" }
+];
 
 type PolicyFormSectionsProps = {
   value: PolicyEditorState;
@@ -614,6 +621,45 @@ export function PolicyExecutionSection({
   ipGroups = []
 }: PolicyFormSectionsProps) {
   const isActiveToInactivePolicy = value.policyType === "active_to_inactive";
+  const applyEnforcementMode = (mode: PolicyEditorState["execution"]["enforcementMode"]) => {
+    const patch: Partial<PolicyEditorState["execution"]> = { enforcementMode: mode };
+
+    if (
+      mode === "managed_group" &&
+      value.execution.objectOnCompliant === "none" &&
+      value.execution.objectOnNonCompliant === "none"
+    ) {
+      if (isActiveToInactivePolicy) {
+        patch.objectOnCompliant = "add";
+        patch.objectOnNonCompliant = "add";
+      } else {
+        patch.objectOnCompliant = "remove";
+        patch.objectOnNonCompliant = "add";
+      }
+    }
+
+    updateExecution(onChange, patch);
+  };
+
+  const updateOutcomeAction = (
+    field: "objectOnCompliant" | "objectOnNonCompliant",
+    action: GroupAction
+  ) => {
+    const patch: Partial<PolicyEditorState["execution"]> = {
+      enforcementMode: "managed_group",
+      [field]: action
+    };
+
+    if (isActiveToInactivePolicy) {
+      patch.objectOnCompliant = action;
+      patch.objectOnNonCompliant = action;
+    }
+
+    updateExecution(onChange, patch);
+  };
+  const actionSummary = isActiveToInactivePolicy
+    ? "Choose what happens when an endpoint transitions from active to inactive."
+    : "Choose the adapter-safe action for each compliance outcome. Add reconciles/registers the selected group; remove unregisters the endpoint IP from the adapter.";
 
   return (
     <div className="grid gap-4 rounded-2xl border border-border bg-slate-950/40 p-4">
@@ -688,24 +734,77 @@ export function PolicyExecutionSection({
             <select
               value={value.execution.enforcementMode}
               onChange={(event) =>
-                updateExecution(onChange, {
-                  enforcementMode: event.target.value as PolicyEditorState["execution"]["enforcementMode"]
-                })
+                applyEnforcementMode(event.target.value as PolicyEditorState["execution"]["enforcementMode"])
               }
               className={inputClassName}
             >
-              <option value="managed_group">Manage endpoint membership</option>
+              <option value="managed_group">Choose outcome actions</option>
               <option value="none">No adapter/object action</option>
               <option value="custom">Keep existing custom action plan</option>
             </select>
           </label>
-          <div className="rounded-xl border border-border bg-slate-950/45 p-3 text-sm text-slate-300">
+          <div className="grid gap-3 rounded-xl border border-border bg-slate-950/45 p-3 text-sm text-slate-300">
             {value.execution.enforcementMode === "managed_group" ? (
-              isActiveToInactivePolicy ? (
-                <p>When the endpoint becomes inactive, the app adds its IP to the selected group and reconciles that group through the adapter.</p>
-              ) : (
-                <p>When non-compliant, the app adds the endpoint IP and reconciles the adapter group. When compliant, it removes the local membership and unregisters the IP from the adapter.</p>
-              )
+              <>
+                <p>{actionSummary}</p>
+                {isActiveToInactivePolicy ? (
+                  <label className="space-y-2">
+                    <span className="text-sm text-slate-300">When active becomes inactive</span>
+                    <select
+                      value={value.execution.objectOnNonCompliant}
+                      onChange={(event) =>
+                        updateOutcomeAction("objectOnNonCompliant", event.target.value as GroupAction)
+                      }
+                      className={inputClassName}
+                    >
+                      {groupActionOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm text-slate-300">When compliant</span>
+                      <select
+                        value={value.execution.objectOnCompliant}
+                        onChange={(event) =>
+                          updateOutcomeAction("objectOnCompliant", event.target.value as GroupAction)
+                        }
+                        className={inputClassName}
+                      >
+                        {groupActionOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm text-slate-300">When non-compliant</span>
+                      <select
+                        value={value.execution.objectOnNonCompliant}
+                        onChange={(event) =>
+                          updateOutcomeAction("objectOnNonCompliant", event.target.value as GroupAction)
+                        }
+                        className={inputClassName}
+                      >
+                        {groupActionOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
+                <p className="text-xs text-slate-500">
+                  The app still builds the low-level object and adapter calls for you, so FortiGate and Palo Alto do
+                  not need separate push/remove choices here.
+                </p>
+              </>
             ) : value.execution.enforcementMode === "custom" ? (
               <p>This policy has a legacy custom action plan. Saving keeps the existing low-level object and adapter actions.</p>
             ) : (
