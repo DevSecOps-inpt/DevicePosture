@@ -12,7 +12,7 @@ from requests import RequestException
 from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
-from app.client import fetch_latest_telemetry, fetch_policy, forward_decision
+from app.client import fetch_latest_telemetry, fetch_policies, forward_decision
 from app.db import Base, engine, get_db
 from app.evaluators import build_registry
 from app.models import EvaluationResultModel
@@ -30,6 +30,7 @@ def ensure_performance_indexes() -> None:
     statements = [
         "CREATE INDEX IF NOT EXISTS idx_evaluation_results_endpoint_created ON evaluation_results(endpoint_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_evaluation_results_policy_created ON evaluation_results(policy_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_evaluation_results_endpoint_policy_created ON evaluation_results(endpoint_id, policy_id, created_at DESC)",
     ]
     with engine.begin() as connection:
         for statement in statements:
@@ -71,6 +72,49 @@ class InlineEvaluationRequest(BaseModel):
     policy: PosturePolicy | None = None
 
 
+def persist_evaluation_result(decision: ComplianceDecision, db: Session) -> None:
+    result = EvaluationResultModel(
+        endpoint_id=decision.endpoint_id,
+        policy_id=decision.policy_id,
+        policy_name=decision.policy_name,
+        compliant=decision.compliant,
+        recommended_action=decision.recommended_action,
+        reasons=[reason.model_dump(mode="json") for reason in decision.reasons],
+        raw_result=decision.model_dump(mode="json"),
+    )
+    db.add(result)
+
+
+def forward_decisions(decisions: list[ComplianceDecision]) -> None:
+    for decision in decisions:
+        try:
+            forward_decision(decision)
+        except RequestException as exc:
+            logger.warning(
+                "failed to forward decision endpoint_id=%s policy_id=%s error=%s",
+                decision.endpoint_id,
+                decision.policy_id,
+                exc,
+            )
+
+
+def evaluate_and_store_decisions(
+    telemetry: EndpointTelemetry,
+    policies: list[PosturePolicy],
+    db: Session,
+) -> list[ComplianceDecision]:
+    if not policies:
+        decisions = [evaluate_telemetry(telemetry, None, registry)]
+    else:
+        decisions = [evaluate_telemetry(telemetry, policy, registry) for policy in policies]
+
+    for decision in decisions:
+        persist_evaluation_result(decision, db)
+    db.commit()
+    forward_decisions(decisions)
+    return decisions
+
+
 @app.middleware("http")
 async def request_observability_middleware(request, call_next):
     request_id = request.headers.get("X-Request-ID", "").strip() or str(uuid4())
@@ -106,9 +150,9 @@ def evaluate_endpoint(
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             telemetry_future = pool.submit(fetch_latest_telemetry, endpoint_id)
-            policy_future = pool.submit(fetch_policy, endpoint_id)
+            policies_future = pool.submit(fetch_policies, endpoint_id)
             telemetry = telemetry_future.result()
-            policy = policy_future.result()
+            policies = policies_future.result()
     except RequestException as exc:
         logger.warning("upstream call failed for endpoint_id=%s error=%s", endpoint_id, exc)
         raise HTTPException(
@@ -116,30 +160,33 @@ def evaluate_endpoint(
             detail="Failed to fetch telemetry or policy from upstream services",
         ) from exc
 
-    decision = evaluate_telemetry(telemetry, policy, registry)
-    result = EvaluationResultModel(
-        endpoint_id=decision.endpoint_id,
-        policy_id=decision.policy_id,
-        policy_name=decision.policy_name,
-        compliant=decision.compliant,
-        recommended_action=decision.recommended_action,
-        reasons=[reason.model_dump(mode="json") for reason in decision.reasons],
-        raw_result=decision.model_dump(mode="json"),
-    )
-    db.add(result)
-    db.commit()
+    decisions = evaluate_and_store_decisions(telemetry, policies, db)
+    return decisions[0]
 
+
+@app.post("/evaluate-all/{endpoint_id}", response_model=list[ComplianceDecision])
+def evaluate_all_endpoint_policies(
+    endpoint_id: str,
+    request: Request,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[ComplianceDecision]:
+    source_ip = request.client.host if request.client else "unknown"
+    _apply_evaluation_rate_limit(f"evaluate-all:{source_ip}")
     try:
-        forward_decision(decision)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            telemetry_future = pool.submit(fetch_latest_telemetry, endpoint_id)
+            policies_future = pool.submit(fetch_policies, endpoint_id)
+            telemetry = telemetry_future.result()
+            policies = policies_future.result()
     except RequestException as exc:
-        logger.warning(
-            "failed to forward decision endpoint_id=%s policy_id=%s error=%s",
-            decision.endpoint_id,
-            decision.policy_id,
-            exc,
-        )
+        logger.warning("upstream call failed for endpoint_id=%s error=%s", endpoint_id, exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch telemetry or policies from upstream services",
+        ) from exc
 
-    return decision
+    return evaluate_and_store_decisions(telemetry, policies, db)
 
 
 @app.get("/results/{endpoint_id}/latest", response_model=ComplianceDecision)
@@ -151,7 +198,7 @@ def latest_result(
     result = db.scalar(
         select(EvaluationResultModel)
         .where(EvaluationResultModel.endpoint_id == endpoint_id)
-        .order_by(desc(EvaluationResultModel.created_at))
+        .order_by(desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Evaluation result not found")
@@ -168,7 +215,7 @@ def result_history(
     results = db.scalars(
         select(EvaluationResultModel)
         .where(EvaluationResultModel.endpoint_id == endpoint_id)
-        .order_by(desc(EvaluationResultModel.created_at))
+        .order_by(desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
         .limit(limit)
     ).all()
     return [ComplianceDecision.model_validate(item.raw_result) for item in results]

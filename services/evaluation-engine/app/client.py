@@ -52,6 +52,19 @@ def fetch_policy(endpoint_id: str) -> PosturePolicy | None:
     return PosturePolicy.model_validate(payload)
 
 
+def fetch_policies(endpoint_id: str) -> list[PosturePolicy]:
+    response = _session.get(
+        f"{POLICY_SERVICE_URL}/policy-matches/{endpoint_id}",
+        headers=_auth_headers(),
+        timeout=HTTP_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, list):
+        return []
+    return [PosturePolicy.model_validate(item) for item in payload if item is not None]
+
+
 def forward_decision(decision: ComplianceDecision) -> dict | None:
     if not FORWARD_DECISIONS:
         return None
