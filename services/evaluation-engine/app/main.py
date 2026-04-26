@@ -192,14 +192,14 @@ def evaluate_all_endpoint_policies(
 @app.get("/results/{endpoint_id}/latest", response_model=ComplianceDecision)
 def latest_result(
     endpoint_id: str,
+    policy_id: int | None = Query(default=None),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> ComplianceDecision:
-    result = db.scalar(
-        select(EvaluationResultModel)
-        .where(EvaluationResultModel.endpoint_id == endpoint_id)
-        .order_by(desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
-    )
+    query = select(EvaluationResultModel).where(EvaluationResultModel.endpoint_id == endpoint_id)
+    if policy_id is not None:
+        query = query.where(EvaluationResultModel.policy_id == policy_id)
+    result = db.scalar(query.order_by(desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id)))
     if result is None:
         raise HTTPException(status_code=404, detail="Evaluation result not found")
     return ComplianceDecision.model_validate(result.raw_result)
@@ -208,22 +208,22 @@ def latest_result(
 @app.get("/results/{endpoint_id}", response_model=list[ComplianceDecision])
 def result_history(
     endpoint_id: str,
+    policy_id: int | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[ComplianceDecision]:
-    results = db.scalars(
-        select(EvaluationResultModel)
-        .where(EvaluationResultModel.endpoint_id == endpoint_id)
-        .order_by(desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
-        .limit(limit)
-    ).all()
+    query = select(EvaluationResultModel).where(EvaluationResultModel.endpoint_id == endpoint_id)
+    if policy_id is not None:
+        query = query.where(EvaluationResultModel.policy_id == policy_id)
+    results = db.scalars(query.order_by(desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id)).limit(limit)).all()
     return [ComplianceDecision.model_validate(item.raw_result) for item in results]
 
 
 @app.get("/results/latest-batch", response_model=dict[str, ComplianceDecision | None])
 def latest_result_batch(
     endpoint_id: list[str] = Query(default=[]),
+    policy_id: int | None = Query(default=None),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> dict[str, ComplianceDecision | None]:
@@ -232,10 +232,11 @@ def latest_result_batch(
     if not endpoint_ids:
         return response
 
+    query = select(EvaluationResultModel).where(EvaluationResultModel.endpoint_id.in_(endpoint_ids))
+    if policy_id is not None:
+        query = query.where(EvaluationResultModel.policy_id == policy_id)
     rows = db.scalars(
-        select(EvaluationResultModel)
-        .where(EvaluationResultModel.endpoint_id.in_(endpoint_ids))
-        .order_by(EvaluationResultModel.endpoint_id, desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
+        query.order_by(EvaluationResultModel.endpoint_id, desc(EvaluationResultModel.created_at), desc(EvaluationResultModel.id))
     ).all()
     for row in rows:
         if response.get(row.endpoint_id) is None:
