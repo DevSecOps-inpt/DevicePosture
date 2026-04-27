@@ -29,8 +29,10 @@ from app.config import (
     ALLOW_PRIVATE_HTTP_TARGETS,
     ASYNC_DECISION_EXECUTION,
     BACKGROUND_WORKERS,
+    EVALUATION_ENGINE_URL,
     HTTP_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
     HTTP_CIRCUIT_BREAKER_THRESHOLD,
+    INTER_SERVICE_API_KEY,
     POLICY_HTTP_ALLOWED_HOSTS,
 )
 from app.db import Base, SessionLocal, engine, get_db
@@ -53,8 +55,8 @@ from app.object_store import (
     find_group_by_name,
     find_ip_host_object,
     find_object_by_id,
+    list_group_membership_owners,
     list_group_host_ips,
-    release_all_group_membership_owners,
     release_endpoint_group_membership,
     remove_object_from_group,
 )
@@ -204,6 +206,87 @@ def store_audit_event(db: Session, event_type: str, endpoint_id: str | None, pay
             payload=sanitize_sensitive_payload(payload_with_correlation),
         )
     )
+
+
+def _inter_service_headers() -> dict[str, str]:
+    if not INTER_SERVICE_API_KEY:
+        return {}
+    return {"X-API-Key": INTER_SERVICE_API_KEY}
+
+
+def _background_reconcile_policy_membership(endpoint_id: str, policy_id: int, reason: str) -> None:
+    url = f"{EVALUATION_ENGINE_URL.rstrip('/')}/evaluate/{endpoint_id}"
+    payload = {
+        "policy_id": policy_id,
+        "reason": reason,
+        "source": "enforcement-service",
+    }
+    db = SessionLocal()
+    try:
+        response = requests.post(
+            url,
+            params={"policy_id": policy_id},
+            headers=_inter_service_headers(),
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        store_audit_event(
+            db,
+            "object.group_member.reconcile_completed",
+            endpoint_id,
+            {
+                **payload,
+                "status": "success",
+                "http_status": response.status_code,
+            },
+        )
+        db.commit()
+    except Exception as exc:  # pragma: no cover - depends on service topology
+        db.rollback()
+        store_audit_event(
+            db,
+            "object.group_member.reconcile_failed",
+            endpoint_id,
+            {
+                **payload,
+                "status": "failed",
+                "error": _short_error_message(exc),
+            },
+        )
+        db.commit()
+        logger.warning(
+            "policy membership reconcile failed endpoint_id=%s policy_id=%s error=%s",
+            endpoint_id,
+            policy_id,
+            _short_error_message(exc),
+        )
+    finally:
+        db.close()
+
+
+def queue_policy_membership_reconciliation(
+    *,
+    owners: list[dict[str, int | str | None]],
+    reason: str,
+) -> list[dict[str, int | str]]:
+    queued: list[dict[str, int | str]] = []
+    seen: set[tuple[str, int]] = set()
+    for owner in owners:
+        endpoint_id = str(owner.get("endpoint_id") or "").strip()
+        raw_policy_id = owner.get("policy_id")
+        if not endpoint_id or raw_policy_id is None:
+            continue
+        try:
+            policy_id = int(raw_policy_id)
+        except (TypeError, ValueError):
+            continue
+        key = (endpoint_id, policy_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        executor.submit(_background_reconcile_policy_membership, endpoint_id, policy_id, reason)
+        queued.append({"endpoint_id": endpoint_id, "policy_id": policy_id})
+    return queued
 
 
 def _short_error_message(exc: Exception) -> str:
@@ -632,6 +715,32 @@ def resolve_group_reference(
     return None
 
 
+def action_adds_to_gate_group(
+    *,
+    actions: list[Any],
+    context: dict[str, Any],
+    default_group_name: str | None,
+    gate_group_name: str,
+) -> bool:
+    normalized_gate_group = gate_group_name.strip().lower()
+    if not normalized_gate_group:
+        return False
+    for raw_action in actions:
+        if not isinstance(raw_action, dict) or raw_action.get("enabled") is False:
+            continue
+        action_type = str(raw_action.get("action_type") or "").strip()
+        if action_type not in {"object.add_ip_to_group", "adapter.add_ip_to_group"}:
+            continue
+        parameters = raw_action.get("parameters", {})
+        if not isinstance(parameters, dict):
+            parameters = {}
+        rendered_parameters = render_templates(parameters, context)
+        target_group = str(rendered_parameters.get("group_name") or default_group_name or "").strip().lower()
+        if target_group == normalized_gate_group:
+            return True
+    return False
+
+
 def append_policy_action_result(
     *,
     db: Session,
@@ -729,17 +838,37 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 gate_passed = not in_group
 
             if not gate_passed:
-                payload = {
-                    "action_type": "execution_gate.ip_group",
-                    "status": "skipped",
-                    "group_name": gate_group_name,
-                    "operator": gate_operator,
-                    "endpoint_ip": decision.endpoint_ip,
-                    "message": "Execution gate condition did not match. Policy actions were skipped.",
-                }
-                append_result(payload, event_type="endpoint.policy_action.skipped")
-                return results
-
+                if gate_operator == "exists in" and action_adds_to_gate_group(
+                    actions=actions,
+                    context=context,
+                    default_group_name=default_group_name,
+                    gate_group_name=gate_group_name,
+                ):
+                    append_result(
+                        {
+                            "action_type": "execution_gate.ip_group",
+                            "status": "bypassed",
+                            "group_name": gate_group_name,
+                            "operator": gate_operator,
+                            "endpoint_ip": decision.endpoint_ip,
+                            "message": (
+                                "Execution gate checks the same group targeted by an add action; "
+                                "continuing so policy-managed membership can be reconciled."
+                            ),
+                        },
+                        event_type="endpoint.policy_action.executed",
+                    )
+                else:
+                    payload = {
+                        "action_type": "execution_gate.ip_group",
+                        "status": "skipped",
+                        "group_name": gate_group_name,
+                        "operator": gate_operator,
+                        "endpoint_ip": decision.endpoint_ip,
+                        "message": "Execution gate condition did not match. Policy actions were skipped.",
+                    }
+                    append_result(payload, event_type="endpoint.policy_action.skipped")
+                    return results
     for raw_action in actions:
         if not isinstance(raw_action, dict):
             continue
@@ -1769,9 +1898,10 @@ def remove_ip_address_from_group(
     group = find_group_by_name(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
+    policy_owners: list[dict[str, int | str | None]] = []
     ip_object = find_ip_host_object(db, ip_address)
     if ip_object is not None:
-        released_owners = release_all_group_membership_owners(db=db, group=group, ip_object=ip_object)
+        policy_owners = list_group_membership_owners(db=db, group=group, ip_object=ip_object)
         remove_object_from_group(db=db, group=group, ip_object=ip_object)
         store_audit_event(
             db,
@@ -1781,12 +1911,16 @@ def remove_ip_address_from_group(
                 "group_name": group.name,
                 "object_id": ip_object.object_id,
                 "ip_address": ip_address,
-                "released_policy_owner_count": released_owners,
+                "retained_policy_owner_count": len(policy_owners),
                 "source": "manual",
             },
         )
     db.commit()
     db.refresh(group)
+    queue_policy_membership_reconciliation(
+        owners=policy_owners,
+        reason="manual_group_member_removed",
+    )
     return to_ip_group_response(group)
 
 
@@ -1803,7 +1937,7 @@ def remove_group_member(
     ip_object = find_object_by_id(db, object_id)
     if ip_object is None:
         raise HTTPException(status_code=404, detail="IP object not found")
-    released_owners = release_all_group_membership_owners(db=db, group=group, ip_object=ip_object)
+    policy_owners = list_group_membership_owners(db=db, group=group, ip_object=ip_object)
     remove_object_from_group(db=db, group=group, ip_object=ip_object)
     store_audit_event(
         db,
@@ -1812,10 +1946,14 @@ def remove_group_member(
         {
             "group_name": group.name,
             "object_id": ip_object.object_id,
-            "released_policy_owner_count": released_owners,
+            "retained_policy_owner_count": len(policy_owners),
             "source": "manual",
         },
     )
     db.commit()
     db.refresh(group)
+    queue_policy_membership_reconciliation(
+        owners=policy_owners,
+        reason="manual_group_member_removed",
+    )
     return to_ip_group_response(group)

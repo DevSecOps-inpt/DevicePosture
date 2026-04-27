@@ -219,6 +219,27 @@ def release_all_group_membership_owners(
     return len(owners)
 
 
+def list_group_membership_owners(
+    *,
+    db: Session,
+    group: IpGroupModel,
+    ip_object: IpObjectModel,
+) -> list[dict[str, int | str | None]]:
+    owners = db.scalars(
+        select(IpGroupMembershipOwnershipModel).where(
+            IpGroupMembershipOwnershipModel.group_ref == group.id,
+            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+        )
+    ).all()
+    return [
+        {
+            "endpoint_id": owner.endpoint_id,
+            "policy_id": owner.policy_id,
+        }
+        for owner in owners
+    ]
+
+
 def count_group_membership_owners(
     *,
     db: Session,

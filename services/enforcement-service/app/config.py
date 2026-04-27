@@ -15,6 +15,8 @@ PALOALTO_VERIFY_TLS = os.getenv("PALOALTO_VERIFY_TLS", "true").lower() == "true"
 PALOALTO_PLACEHOLDER_IP = os.getenv("PALOALTO_PLACEHOLDER_IP", "203.0.113.254")
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
 HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "3"))
+EVALUATION_ENGINE_URL = os.getenv("EVALUATION_ENGINE_URL", "http://127.0.0.1:8003")
+INTER_SERVICE_API_KEY = os.getenv("POSTURE_API_KEY", "").strip()
 FORTIGATE_VERIFY_TLS = os.getenv("FORTIGATE_VERIFY_TLS", "true").lower() == "true"
 ASYNC_DECISION_EXECUTION = os.getenv("ASYNC_DECISION_EXECUTION", "false").lower() == "true"
 BACKGROUND_WORKERS = int(os.getenv("BACKGROUND_WORKERS", "4"))
