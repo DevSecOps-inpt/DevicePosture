@@ -42,6 +42,7 @@ from app.models import (
     BackgroundJobModel,
     EnforcementRecordModel,
     IpGroupMemberModel,
+    IpGroupMembershipOwnershipModel,
     IpGroupModel,
     IpObjectModel,
 )
@@ -741,6 +742,208 @@ def action_adds_to_gate_group(
     return False
 
 
+def actions_remove_from_group(
+    *,
+    actions: list[Any],
+    context: dict[str, Any],
+    default_group_name: str | None,
+    target_group_name: str | None,
+) -> bool:
+    normalized_target = str(target_group_name or "").strip().lower()
+    if not normalized_target:
+        return False
+    for raw_action in actions:
+        if not isinstance(raw_action, dict) or raw_action.get("enabled") is False:
+            continue
+        if str(raw_action.get("action_type") or "").strip() != "object.remove_ip_from_group":
+            continue
+        parameters = raw_action.get("parameters", {})
+        if not isinstance(parameters, dict):
+            parameters = {}
+        rendered_parameters = render_templates(parameters, context)
+        action_group = str(rendered_parameters.get("group_name") or default_group_name or "").strip().lower()
+        if action_group == normalized_target:
+            return True
+    return False
+
+
+def cleanup_policy_owned_memberships(
+    *,
+    db: Session,
+    decision: ComplianceDecision,
+    adapter_name: str,
+    adapter_profile: str | None,
+    reason: str,
+) -> list[dict]:
+    if decision.policy_id is None:
+        return []
+
+    owners = db.scalars(
+        select(IpGroupMembershipOwnershipModel).where(
+            IpGroupMembershipOwnershipModel.endpoint_id == decision.endpoint_id,
+            IpGroupMembershipOwnershipModel.policy_id == decision.policy_id,
+        )
+    ).all()
+    cleanup_results: list[dict] = []
+    seen_targets: set[tuple[int, int]] = set()
+
+    for owner in owners:
+        target_key = (owner.group_ref, owner.object_ref)
+        if target_key in seen_targets:
+            continue
+        seen_targets.add(target_key)
+
+        group = db.get(IpGroupModel, owner.group_ref)
+        ip_object = db.get(IpObjectModel, owner.object_ref)
+        if group is None or ip_object is None:
+            continue
+
+        with _get_group_operation_lock("object-group", group.name):
+            ownership_released = release_endpoint_group_membership(
+                db=db,
+                group=group,
+                ip_object=ip_object,
+                endpoint_id=decision.endpoint_id,
+                policy_id=decision.policy_id,
+            )
+            owner_count = count_group_membership_owners(
+                db=db,
+                group=group,
+                ip_object=ip_object,
+            )
+            if owner_count == 0:
+                removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+                operation = "removed" if removed else "already_absent"
+            else:
+                operation = "retained_by_other_owners"
+
+        cleanup_results.append(
+            {
+                "action_type": "object.reconcile_policy_membership",
+                "status": "success",
+                "reason": reason,
+                "group_name": group.name,
+                "group_id": group.group_id,
+                "object_id": ip_object.object_id,
+                "ip_address": ip_object.value,
+                "operation": operation,
+                "ownership_released": ownership_released,
+                "owner_count": owner_count,
+            }
+        )
+
+        selected_adapter = normalize_adapter_name(adapter_name)
+        profile_name, settings = resolve_adapter_settings(db, selected_adapter, adapter_profile)
+        if profile_name is None and adapter_profile:
+            cleanup_results.append(
+                {
+                    "action_type": "adapter.reconcile_policy_membership",
+                    "status": "failed",
+                    "reason": reason,
+                    "adapter": selected_adapter,
+                    "adapter_profile": adapter_profile,
+                    "group_name": group.name,
+                    "message": f"adapter profile '{adapter_profile}' not found or inactive",
+                }
+            )
+            continue
+
+        lock = _get_group_operation_lock(
+            "adapter-group",
+            selected_adapter,
+            str(profile_name or ""),
+            group.name,
+        )
+        with lock:
+            action = EnforcementAction(
+                adapter=selected_adapter,
+                action="remove_from_group",
+                endpoint_id=decision.endpoint_id,
+                ip_address=ip_object.value,
+                group_name=group.name,
+                adapter_profile=profile_name,
+                decision={
+                    "policy_id": decision.policy_id,
+                    "policy_name": decision.policy_name,
+                    "adapter_settings": settings,
+                    "group_id": group.group_id,
+                    "cleanup_reason": reason,
+                },
+            )
+            try:
+                enforcement_result = registry.execute(action)
+                persist_enforcement_result(db, enforcement_result)
+                cleanup_results.append(
+                    {
+                        "action_type": "adapter.reconcile_policy_membership",
+                        "status": enforcement_result.status,
+                        "reason": reason,
+                        "adapter": selected_adapter,
+                        "adapter_profile": profile_name,
+                        "group_name": group.name,
+                        "details": enforcement_result.details,
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - defensive guard
+                cleanup_results.append(
+                    {
+                        "action_type": "adapter.reconcile_policy_membership",
+                        "status": "failed",
+                        "reason": reason,
+                        "adapter": selected_adapter,
+                        "adapter_profile": profile_name,
+                        "group_name": group.name,
+                        "message": f"adapter cleanup crashed: {exc}",
+                    }
+                )
+
+    return cleanup_results
+
+
+def cleanup_policy_owned_local_membership(
+    *,
+    db: Session,
+    decision: ComplianceDecision,
+    group: IpGroupModel,
+    ip_object: IpObjectModel,
+    reason: str,
+) -> dict | None:
+    if decision.policy_id is None:
+        return None
+
+    with _get_group_operation_lock("object-group", group.name):
+        ownership_released = release_endpoint_group_membership(
+            db=db,
+            group=group,
+            ip_object=ip_object,
+            endpoint_id=decision.endpoint_id,
+            policy_id=decision.policy_id,
+        )
+        owner_count = count_group_membership_owners(
+            db=db,
+            group=group,
+            ip_object=ip_object,
+        )
+        if owner_count == 0:
+            removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+            operation = "removed" if removed else "already_absent"
+        else:
+            operation = "retained_by_other_owners"
+
+    return {
+        "action_type": "object.reconcile_policy_membership",
+        "status": "success",
+        "reason": reason,
+        "group_name": group.name,
+        "group_id": group.group_id,
+        "object_id": ip_object.object_id,
+        "ip_address": ip_object.value,
+        "operation": operation,
+        "ownership_released": ownership_released,
+        "owner_count": owner_count,
+    }
+
+
 def append_policy_action_result(
     *,
     db: Session,
@@ -774,8 +977,8 @@ def append_policy_action_result(
 def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]:
     plan = decision.execution_plan or {}
     actions = plan.get("actions", [])
-    if not isinstance(actions, list) or not actions:
-        return []
+    if not isinstance(actions, list):
+        actions = []
 
     adapter_name = str(plan.get("adapter") or DEFAULT_ADAPTER)
     adapter_profile = plan.get("adapter_profile")
@@ -803,6 +1006,18 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             payload=enriched_payload,
             event_type=event_type,
         )
+
+    if not actions:
+        cleanup_results = cleanup_policy_owned_memberships(
+            db=db,
+            decision=decision,
+            adapter_name=adapter_name,
+            adapter_profile=adapter_profile,
+            reason="no_enabled_policy_actions",
+        )
+        for cleanup_payload in cleanup_results:
+            append_result(cleanup_payload)
+        return results
 
     execution_gate = plan.get("execution_gate") if isinstance(plan, dict) else None
     if isinstance(execution_gate, dict):
@@ -859,6 +1074,15 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                         event_type="endpoint.policy_action.executed",
                     )
                 else:
+                    cleanup_results = cleanup_policy_owned_memberships(
+                        db=db,
+                        decision=decision,
+                        adapter_name=adapter_name,
+                        adapter_profile=adapter_profile,
+                        reason="execution_gate_not_matched",
+                    )
+                    for cleanup_payload in cleanup_results:
+                        append_result(cleanup_payload)
                     payload = {
                         "action_type": "execution_gate.ip_group",
                         "status": "skipped",
@@ -1097,6 +1321,28 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                         "group_name": group_name,
                         "message": f"adapter execution crashed: {exc}",
                     }
+            if (
+                action_type == "adapter.remove_ip_from_group"
+                and decision.endpoint_ip
+                and not actions_remove_from_group(
+                    actions=actions,
+                    context=context,
+                    default_group_name=default_group_name,
+                    target_group_name=str(group_name) if group_name else None,
+                )
+            ):
+                group = (resolved_group or find_group_by_name(db, str(group_name))) if group_name else None
+                ip_object = find_ip_host_object(db, decision.endpoint_ip)
+                if group is not None and ip_object is not None:
+                    local_cleanup_payload = cleanup_policy_owned_local_membership(
+                        db=db,
+                        decision=decision,
+                        group=group,
+                        ip_object=ip_object,
+                        reason="adapter_remove_action",
+                    )
+                    if local_cleanup_payload is not None:
+                        append_result(local_cleanup_payload)
             append_result(payload)
             continue
 
