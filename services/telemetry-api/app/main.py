@@ -3,12 +3,16 @@ import os
 import threading
 import time
 import ipaddress
+import json
 from collections import defaultdict, deque
 from uuid import uuid4
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.error import URLError
+from urllib.parse import quote_plus
+from urllib.request import Request as UrlRequest, urlopen
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import desc, inspect, select, text
@@ -64,6 +68,10 @@ logger = configure_logging()
 
 MAX_TELEMETRY_BODY_BYTES = int(os.getenv("MAX_TELEMETRY_BODY_BYTES", "1048576"))
 TELEMETRY_RATE_LIMIT_PER_MINUTE = int(os.getenv("TELEMETRY_RATE_LIMIT_PER_MINUTE", "120"))
+EVALUATION_ENGINE_URL = os.getenv("EVALUATION_ENGINE_URL", "http://127.0.0.1:8003")
+EVALUATION_HTTP_TIMEOUT_SECONDS = float(os.getenv("EVALUATION_HTTP_TIMEOUT_SECONDS", "8"))
+EVALUATE_POSTURE_ON_TELEMETRY = os.getenv("EVALUATE_POSTURE_ON_TELEMETRY", "true").lower() == "true"
+INTER_SERVICE_API_KEY = os.getenv("POSTURE_API_KEY", "").strip()
 _telemetry_rate_state: dict[str, deque[float]] = defaultdict(deque)
 _telemetry_rate_lock = threading.Lock()
 
@@ -190,6 +198,35 @@ def _apply_ingest_rate_limit(source_ip: str) -> None:
         bucket.append(now)
 
 
+def _inter_service_headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if INTER_SERVICE_API_KEY:
+        headers["X-API-Key"] = INTER_SERVICE_API_KEY
+    return headers
+
+
+def trigger_posture_evaluation(endpoint_id: str) -> None:
+    if not EVALUATE_POSTURE_ON_TELEMETRY:
+        return
+    url = f"{EVALUATION_ENGINE_URL.rstrip('/')}/evaluate-all/{quote_plus(endpoint_id)}"
+    request = UrlRequest(url=url, method="POST", data=b"{}", headers=_inter_service_headers())
+    try:
+        with urlopen(request, timeout=EVALUATION_HTTP_TIMEOUT_SECONDS) as response:
+            raw = response.read().decode("utf-8")
+        evaluated_count = 0
+        if raw:
+            payload = json.loads(raw)
+            if isinstance(payload, list):
+                evaluated_count = len(payload)
+        logger.info(
+            "posture evaluation triggered endpoint_id=%s evaluated_policy_count=%s",
+            endpoint_id,
+            evaluated_count,
+        )
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        logger.warning("failed to trigger posture evaluation endpoint_id=%s error=%s", endpoint_id, exc)
+
+
 def _parse_first_valid_ip(raw_value: str | None) -> str | None:
     if not raw_value:
         return None
@@ -241,6 +278,7 @@ def resolve_client_ip(request: Request) -> str | None:
 def submit_telemetry(
     telemetry: EndpointTelemetry,
     request: Request,
+    background_tasks: BackgroundTasks,
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> TelemetryIngestResponse:
@@ -347,6 +385,7 @@ def submit_telemetry(
     )
     db.commit()
     db.refresh(record)
+    background_tasks.add_task(trigger_posture_evaluation, telemetry.endpoint_id)
 
     logger.info(
         "stored telemetry endpoint_id=%s hostname=%s source_ip=%s record_id=%s interval=%s grace_multiplier=%s activity_timeout=%s created_endpoint=%s lifecycle_event=%s",

@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -52,7 +53,7 @@ registry = build_registry()
 logger = logging.getLogger("evaluation-engine")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
-EVALUATION_RATE_LIMIT_PER_MINUTE = 120
+EVALUATION_RATE_LIMIT_PER_MINUTE = int(os.getenv("EVALUATION_RATE_LIMIT_PER_MINUTE", "600"))
 _evaluation_rate_lock = threading.Lock()
 _evaluation_rate_state: dict[str, list[float]] = {}
 
