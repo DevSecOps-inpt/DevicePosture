@@ -98,7 +98,8 @@ class IpGroupMembershipOwnershipModel(Base):
             "group_ref",
             "object_ref",
             "endpoint_id",
-            name="uq_group_object_endpoint_owner",
+            "policy_id",
+            name="uq_group_object_endpoint_policy_owner",
         ),
     )
 
@@ -106,6 +107,7 @@ class IpGroupMembershipOwnershipModel(Base):
     group_ref: Mapped[int] = mapped_column(ForeignKey("ip_groups.id"), index=True)
     object_ref: Mapped[int] = mapped_column(ForeignKey("ip_objects.id"), index=True)
     endpoint_id: Mapped[str] = mapped_column(String(128), index=True)
+    policy_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, index=True)
 

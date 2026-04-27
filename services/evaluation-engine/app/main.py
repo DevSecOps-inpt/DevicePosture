@@ -142,6 +142,7 @@ def healthcheck() -> dict[str, str]:
 def evaluate_endpoint(
     endpoint_id: str,
     request: Request,
+    policy_id: int | None = Query(default=None),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> ComplianceDecision:
@@ -160,6 +161,11 @@ def evaluate_endpoint(
             detail="Failed to fetch telemetry or policy from upstream services",
         ) from exc
 
+    if policy_id is not None:
+        policies = [policy for policy in policies if policy.id == policy_id]
+        if not policies:
+            raise HTTPException(status_code=404, detail="Assigned policy not found for endpoint")
+
     decisions = evaluate_and_store_decisions(telemetry, policies, db)
     return decisions[0]
 
@@ -168,6 +174,7 @@ def evaluate_endpoint(
 def evaluate_all_endpoint_policies(
     endpoint_id: str,
     request: Request,
+    policy_id: int | None = Query(default=None),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[ComplianceDecision]:
@@ -185,6 +192,11 @@ def evaluate_all_endpoint_policies(
             status_code=502,
             detail="Failed to fetch telemetry or policies from upstream services",
         ) from exc
+
+    if policy_id is not None:
+        policies = [policy for policy in policies if policy.id == policy_id]
+        if not policies:
+            raise HTTPException(status_code=404, detail="Assigned policy not found for endpoint")
 
     return evaluate_and_store_decisions(telemetry, policies, db)
 

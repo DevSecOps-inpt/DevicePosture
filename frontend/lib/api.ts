@@ -305,8 +305,13 @@ export const api = {
     >(`${POLICY_SERVICE_URL}/endpoints/assigned-policies-batch?${params.toString()}`);
   },
 
-  evaluateEndpoint(endpointId: string) {
-    return fetchJson<ComplianceDecision>(`${EVALUATION_ENGINE_URL}/evaluate/${endpointId}`, {
+  evaluateEndpoint(endpointId: string, options?: { policyId?: number }) {
+    const params = new URLSearchParams();
+    if (options?.policyId != null) {
+      params.set("policy_id", String(options.policyId));
+    }
+    const query = params.toString();
+    return fetchJson<ComplianceDecision>(`${EVALUATION_ENGINE_URL}/evaluate/${endpointId}${query ? `?${query}` : ""}`, {
       method: "POST"
     });
   },

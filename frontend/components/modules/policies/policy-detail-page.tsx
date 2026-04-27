@@ -159,7 +159,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
     }
 
     const results = await Promise.allSettled(
-      affectedEndpointIds.map((endpointId) => api.evaluateEndpoint(endpointId))
+      affectedEndpointIds.map((endpointId) => api.evaluateEndpoint(endpointId, { policyId: targetPolicyId }))
     );
     const succeeded = results.filter((result) => result.status === "fulfilled").length;
     const failed = results.length - succeeded;
@@ -510,7 +510,7 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
                   });
                   if (policy.policy_scope === "posture") {
                     try {
-                      await api.evaluateEndpoint(assignmentEndpointId);
+                      await api.evaluateEndpoint(assignmentEndpointId, { policyId: policy.id });
                       pushToast({
                         tone: "success",
                         title: "Endpoint assigned and evaluation started"

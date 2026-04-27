@@ -16,7 +16,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from sqlalchemy import desc, select, text
+from sqlalchemy import desc, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.adapters import build_registry
@@ -54,6 +54,7 @@ from app.object_store import (
     find_ip_host_object,
     find_object_by_id,
     list_group_host_ips,
+    release_all_group_membership_owners,
     release_endpoint_group_membership,
     remove_object_from_group,
 )
@@ -85,7 +86,16 @@ def ensure_performance_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_enforcement_records_endpoint_created ON enforcement_records(endpoint_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_audit_events_endpoint_created ON audit_events(endpoint_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_background_jobs_status_created ON background_jobs(status, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_membership_owner_policy ON ip_group_membership_ownership(policy_id, endpoint_id, group_ref, object_ref)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_group_object_endpoint_policy_owner_idx ON ip_group_membership_ownership(group_ref, object_ref, endpoint_id, policy_id)",
     ]
+    inspector = inspect(engine)
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns("ip_group_membership_ownership")
+    }
+    if "policy_id" not in existing_columns:
+        statements.insert(0, "ALTER TABLE ip_group_membership_ownership ADD COLUMN policy_id INTEGER")
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
@@ -788,6 +798,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     group=group,
                     ip_object=ip_object,
                     endpoint_id=decision.endpoint_id,
+                    policy_id=decision.policy_id,
                 )
                 added = add_object_to_group(db=db, group=group, ip_object=ip_object)
                 owner_count = count_group_membership_owners(
@@ -854,6 +865,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     group=group,
                     ip_object=ip_object,
                     endpoint_id=decision.endpoint_id,
+                    policy_id=decision.policy_id,
                 )
                 owner_count = count_group_membership_owners(
                     db=db,
@@ -1759,7 +1771,20 @@ def remove_ip_address_from_group(
         raise HTTPException(status_code=404, detail="IP group not found")
     ip_object = find_ip_host_object(db, ip_address)
     if ip_object is not None:
+        released_owners = release_all_group_membership_owners(db=db, group=group, ip_object=ip_object)
         remove_object_from_group(db=db, group=group, ip_object=ip_object)
+        store_audit_event(
+            db,
+            "object.group_member.removed",
+            None,
+            {
+                "group_name": group.name,
+                "object_id": ip_object.object_id,
+                "ip_address": ip_address,
+                "released_policy_owner_count": released_owners,
+                "source": "manual",
+            },
+        )
     db.commit()
     db.refresh(group)
     return to_ip_group_response(group)
@@ -1778,7 +1803,19 @@ def remove_group_member(
     ip_object = find_object_by_id(db, object_id)
     if ip_object is None:
         raise HTTPException(status_code=404, detail="IP object not found")
+    released_owners = release_all_group_membership_owners(db=db, group=group, ip_object=ip_object)
     remove_object_from_group(db=db, group=group, ip_object=ip_object)
+    store_audit_event(
+        db,
+        "object.group_member.removed",
+        None,
+        {
+            "group_name": group.name,
+            "object_id": ip_object.object_id,
+            "released_policy_owner_count": released_owners,
+            "source": "manual",
+        },
+    )
     db.commit()
     db.refresh(group)
     return to_ip_group_response(group)

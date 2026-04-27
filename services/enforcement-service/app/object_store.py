@@ -142,22 +142,30 @@ def claim_endpoint_group_membership(
     group: IpGroupModel,
     ip_object: IpObjectModel,
     endpoint_id: str,
+    policy_id: int | None = None,
 ) -> bool:
     normalized_endpoint_id = endpoint_id.strip()
+    query = select(IpGroupMembershipOwnershipModel).where(
+        IpGroupMembershipOwnershipModel.group_ref == group.id,
+        IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+        IpGroupMembershipOwnershipModel.endpoint_id == normalized_endpoint_id,
+    )
+    if policy_id is not None:
+        query = query.where(IpGroupMembershipOwnershipModel.policy_id == policy_id)
     existing = db.scalar(
-        select(IpGroupMembershipOwnershipModel).where(
-            IpGroupMembershipOwnershipModel.group_ref == group.id,
-            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
-            IpGroupMembershipOwnershipModel.endpoint_id == normalized_endpoint_id,
-        )
+        query
     )
     if existing is not None:
+        if existing.policy_id is None and policy_id is not None:
+            existing.policy_id = policy_id
+            db.flush()
         return False
     db.add(
         IpGroupMembershipOwnershipModel(
             group_ref=group.id,
             object_ref=ip_object.id,
             endpoint_id=normalized_endpoint_id,
+            policy_id=policy_id,
         )
     )
     db.flush()
@@ -170,20 +178,45 @@ def release_endpoint_group_membership(
     group: IpGroupModel,
     ip_object: IpObjectModel,
     endpoint_id: str,
+    policy_id: int | None = None,
 ) -> bool:
     normalized_endpoint_id = endpoint_id.strip()
-    existing = db.scalar(
-        select(IpGroupMembershipOwnershipModel).where(
-            IpGroupMembershipOwnershipModel.group_ref == group.id,
-            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
-            IpGroupMembershipOwnershipModel.endpoint_id == normalized_endpoint_id,
+    query = select(IpGroupMembershipOwnershipModel).where(
+        IpGroupMembershipOwnershipModel.group_ref == group.id,
+        IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+        IpGroupMembershipOwnershipModel.endpoint_id == normalized_endpoint_id,
+    )
+    if policy_id is not None:
+        query = query.where(
+            (IpGroupMembershipOwnershipModel.policy_id == policy_id)
+            | (IpGroupMembershipOwnershipModel.policy_id.is_(None))
         )
+    existing = db.scalar(
+        query
     )
     if existing is None:
         return False
     db.delete(existing)
     db.flush()
     return True
+
+
+def release_all_group_membership_owners(
+    *,
+    db: Session,
+    group: IpGroupModel,
+    ip_object: IpObjectModel,
+) -> int:
+    owners = db.scalars(
+        select(IpGroupMembershipOwnershipModel).where(
+            IpGroupMembershipOwnershipModel.group_ref == group.id,
+            IpGroupMembershipOwnershipModel.object_ref == ip_object.id,
+        )
+    ).all()
+    for owner in owners:
+        db.delete(owner)
+    db.flush()
+    return len(owners)
 
 
 def count_group_membership_owners(
