@@ -13,6 +13,7 @@ from requests import RequestException
 from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
+from app.config import FORWARD_DECISION_WORKERS
 from app.client import fetch_latest_telemetry, fetch_policies, forward_decision
 from app.db import Base, engine, get_db
 from app.evaluators import build_registry
@@ -87,7 +88,7 @@ def persist_evaluation_result(decision: ComplianceDecision, db: Session) -> None
 
 
 def forward_decisions(decisions: list[ComplianceDecision]) -> None:
-    for decision in decisions:
+    def _forward(decision: ComplianceDecision) -> None:
         try:
             forward_decision(decision)
         except RequestException as exc:
@@ -97,6 +98,12 @@ def forward_decisions(decisions: list[ComplianceDecision]) -> None:
                 decision.policy_id,
                 exc,
             )
+
+    if not decisions:
+        return
+    max_workers = max(1, min(FORWARD_DECISION_WORKERS, len(decisions)))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        list(pool.map(_forward, decisions))
 
 
 def evaluate_and_store_decisions(

@@ -68,7 +68,7 @@ def fetch_policies(endpoint_id: str) -> list[PosturePolicy]:
 def forward_decision(decision: ComplianceDecision) -> dict | None:
     if not FORWARD_DECISIONS:
         return None
-    response = _session.post(
+    response = requests.post(
         f"{ENFORCEMENT_SERVICE_URL}/decisions",
         headers=_auth_headers(),
         json=decision.model_dump(mode="json"),
