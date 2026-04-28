@@ -964,8 +964,11 @@ def append_policy_action_result(
 
     store_audit_event(db, resolved_event_type, endpoint_id, payload)
     logger.info(
-        "policy_action endpoint_id=%s event_type=%s action_type=%s status=%s details=%s",
+        "policy_action endpoint_id=%s policy_id=%s policy_name=%s group_name=%s event_type=%s action_type=%s status=%s details=%s",
         endpoint_id,
+        payload.get("policy_id"),
+        payload.get("policy_name"),
+        payload.get("group_name"),
         resolved_event_type,
         payload.get("action_type"),
         payload.get("status"),

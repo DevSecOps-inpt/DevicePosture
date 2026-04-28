@@ -13,7 +13,6 @@ from requests import RequestException
 from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
-from app.config import FORWARD_DECISION_WORKERS
 from app.client import fetch_latest_telemetry, fetch_policies, forward_decision
 from app.db import Base, engine, get_db
 from app.evaluators import build_registry
@@ -88,9 +87,40 @@ def persist_evaluation_result(decision: ComplianceDecision, db: Session) -> None
 
 
 def forward_decisions(decisions: list[ComplianceDecision]) -> None:
-    def _forward(decision: ComplianceDecision) -> None:
+    if not decisions:
+        return
+
+    forwarded_count = 0
+    logger.info(
+        "forwarding decisions decision_count=%s policy_ids=%s",
+        len(decisions),
+        [decision.policy_id for decision in decisions],
+    )
+    for decision in decisions:
         try:
-            forward_decision(decision)
+            result = forward_decision(decision)
+            forwarded_count += 1
+            execution_results = []
+            if isinstance(result, dict):
+                raw_results = result.get("execution_results", [])
+                if isinstance(raw_results, list):
+                    execution_results = raw_results
+            groups = sorted(
+                {
+                    str(item.get("group_name"))
+                    for item in execution_results
+                    if isinstance(item, dict) and item.get("group_name")
+                }
+            )
+            logger.info(
+                "decision forwarded endpoint_id=%s policy_id=%s policy_name=%s compliant=%s action_count=%s groups=%s",
+                decision.endpoint_id,
+                decision.policy_id,
+                decision.policy_name,
+                decision.compliant,
+                len(execution_results),
+                groups,
+            )
         except RequestException as exc:
             logger.warning(
                 "failed to forward decision endpoint_id=%s policy_id=%s error=%s",
@@ -98,12 +128,12 @@ def forward_decisions(decisions: list[ComplianceDecision]) -> None:
                 decision.policy_id,
                 exc,
             )
-
-    if not decisions:
-        return
-    max_workers = max(1, min(FORWARD_DECISION_WORKERS, len(decisions)))
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        list(pool.map(_forward, decisions))
+    logger.info(
+        "decision forwarding completed decision_count=%s forwarded_count=%s policy_ids=%s",
+        len(decisions),
+        forwarded_count,
+        [decision.policy_id for decision in decisions],
+    )
 
 
 def evaluate_and_store_decisions(
@@ -111,6 +141,12 @@ def evaluate_and_store_decisions(
     policies: list[PosturePolicy],
     db: Session,
 ) -> list[ComplianceDecision]:
+    logger.info(
+        "evaluating policies endpoint_id=%s policy_count=%s policy_ids=%s",
+        telemetry.endpoint_id,
+        len(policies),
+        [policy.id for policy in policies],
+    )
     if not policies:
         decisions = [evaluate_telemetry(telemetry, None, registry)]
     else:
@@ -119,6 +155,12 @@ def evaluate_and_store_decisions(
     for decision in decisions:
         persist_evaluation_result(decision, db)
     db.commit()
+    logger.info(
+        "evaluated policies endpoint_id=%s decision_count=%s policy_ids=%s",
+        telemetry.endpoint_id,
+        len(decisions),
+        [decision.policy_id for decision in decisions],
+    )
     forward_decisions(decisions)
     return decisions
 
@@ -162,6 +204,12 @@ def evaluate_endpoint(
             policies_future = pool.submit(fetch_policies, endpoint_id)
             telemetry = telemetry_future.result()
             policies = policies_future.result()
+            logger.info(
+                "fetched policies endpoint_id=%s policy_count=%s policy_ids=%s mode=evaluate",
+                endpoint_id,
+                len(policies),
+                [policy.id for policy in policies],
+            )
     except RequestException as exc:
         logger.warning("upstream call failed for endpoint_id=%s error=%s", endpoint_id, exc)
         raise HTTPException(
@@ -194,6 +242,12 @@ def evaluate_all_endpoint_policies(
             policies_future = pool.submit(fetch_policies, endpoint_id)
             telemetry = telemetry_future.result()
             policies = policies_future.result()
+            logger.info(
+                "fetched policies endpoint_id=%s policy_count=%s policy_ids=%s mode=evaluate_all",
+                endpoint_id,
+                len(policies),
+                [policy.id for policy in policies],
+            )
     except RequestException as exc:
         logger.warning("upstream call failed for endpoint_id=%s error=%s", endpoint_id, exc)
         raise HTTPException(

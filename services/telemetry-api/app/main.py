@@ -209,6 +209,7 @@ def trigger_posture_evaluation(endpoint_id: str) -> None:
     if not EVALUATE_POSTURE_ON_TELEMETRY:
         return
     url = f"{EVALUATION_ENGINE_URL.rstrip('/')}/evaluate-all/{quote_plus(endpoint_id)}"
+    logger.info("triggering posture evaluation endpoint_id=%s url=%s", endpoint_id, url)
     request = UrlRequest(url=url, method="POST", data=b"{}", headers=_inter_service_headers())
     try:
         with urlopen(request, timeout=EVALUATION_HTTP_TIMEOUT_SECONDS) as response:
@@ -296,6 +297,13 @@ def submit_telemetry(
     source_ip = resolve_client_ip(request)
     if source_ip is not None:
         _apply_ingest_rate_limit(source_ip)
+    logger.info(
+        "telemetry received endpoint_id=%s hostname=%s source_ip=%s reported_ipv4=%s",
+        telemetry.endpoint_id,
+        telemetry.hostname,
+        source_ip,
+        telemetry.network.ipv4,
+    )
 
     endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == telemetry.endpoint_id))
     created_endpoint = False
