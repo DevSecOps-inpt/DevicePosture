@@ -68,7 +68,7 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
         if field in {"antivirus.family", "av.family"}:
             expected_families = {normalize_antivirus_family_value(item) for item in expected}
             if evaluate_membership(
-                actual_values=installed_families,
+                actual_values=active_families,
                 expected_values=expected_families,
                 operator=operator,
             ):
@@ -77,8 +77,8 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
                 EvaluationReason(
                     check_type=self.condition_type,
                     message=(
-                        f"Antivirus family condition failed. Installed families: {sorted(installed_families)}. "
-                        f"Active families: {sorted(active_families)}"
+                        f"Antivirus family condition failed. Active families: {sorted(active_families)}. "
+                        f"Installed families: {sorted(installed_families)}. Family states: {detection.family_states}"
                     ),
                 )
             ]
