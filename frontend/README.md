@@ -65,6 +65,20 @@ npm install
 npm run dev
 ```
 
+The browser talks only to same-origin Next.js API routes under `/api/backend/*`.
+The Next.js server then forwards requests to the internal FastAPI services.
+Set backend URLs and the shared API key as server-only environment variables for the Next.js process:
+
+```powershell
+$env:TELEMETRY_API_URL = "http://127.0.0.1:8011"
+$env:POLICY_SERVICE_URL = "http://127.0.0.1:8002"
+$env:EVALUATION_ENGINE_URL = "http://127.0.0.1:8003"
+$env:ENFORCEMENT_SERVICE_URL = "http://127.0.0.1:8004"
+$env:POSTURE_API_KEY = "<secret>"
+```
+
+Do not use `NEXT_PUBLIC_*` for backend service URLs or `POSTURE_API_KEY`; those values would be exposed to browser code.
+
 ## Build
 
 ```powershell

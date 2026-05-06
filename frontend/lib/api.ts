@@ -22,20 +22,10 @@ import type {
   SessionUser
 } from "@/types/platform";
 
-function defaultServiceUrl(port: number): string {
-  if (typeof window !== "undefined") {
-    const protocol = window.location.protocol || "http:";
-    const hostname = window.location.hostname || "127.0.0.1";
-    return `${protocol}//${hostname}:${port}`;
-  }
-  return `http://127.0.0.1:${port}`;
-}
-
-const TELEMETRY_API_URL = process.env.NEXT_PUBLIC_TELEMETRY_API_URL ?? defaultServiceUrl(8011);
-const POLICY_SERVICE_URL = process.env.NEXT_PUBLIC_POLICY_SERVICE_URL ?? defaultServiceUrl(8002);
-const EVALUATION_ENGINE_URL = process.env.NEXT_PUBLIC_EVALUATION_ENGINE_URL ?? defaultServiceUrl(8003);
-const ENFORCEMENT_SERVICE_URL = process.env.NEXT_PUBLIC_ENFORCEMENT_SERVICE_URL ?? defaultServiceUrl(8004);
-const SHARED_API_KEY = process.env.NEXT_PUBLIC_POSTURE_API_KEY ?? "";
+const TELEMETRY_API_URL = "/api/backend/telemetry";
+const POLICY_SERVICE_URL = "/api/backend/policy";
+const EVALUATION_ENGINE_URL = "/api/backend/evaluation";
+const ENFORCEMENT_SERVICE_URL = "/api/backend/enforcement";
 
 type FetchJsonOptions = {
   includeCredentials?: boolean;
@@ -47,15 +37,12 @@ function shouldUsePolicySessionCookie(input: RequestInfo | URL): boolean {
 }
 
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, options?: FetchJsonOptions): Promise<T> {
-  const authHeaders =
-    SHARED_API_KEY.trim().length > 0 ? ({ "X-API-Key": SHARED_API_KEY.trim() } as Record<string, string>) : {};
   const includeCredentials = options?.includeCredentials ?? shouldUsePolicySessionCookie(input);
   let response: Response;
   try {
     response = await fetch(input, {
       ...init,
       headers: {
-        ...authHeaders,
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
         ...(init?.headers ?? {})
       },
@@ -66,7 +53,7 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, option
     const target = typeof input === "string" ? input : input.toString();
     const reason = error instanceof Error ? error.message : "Unknown network error";
     throw new Error(
-      `Network error while calling ${target}. Verify service is running, CORS origin is allowed, and URL/protocol are correct (${reason}).`
+      `Network error while calling ${target}. Verify the Next.js API route and internal backend service are reachable (${reason}).`
     );
   }
 

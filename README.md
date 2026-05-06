@@ -187,7 +187,7 @@ Notes for Linux:
 - the Windows-native PowerShell collector remains Windows-only by design
 - a Linux-native collector is planned, but not implemented yet
 - you can override service URLs or FortiGate settings with environment variables before launching
-- backend services bind to `0.0.0.0` by default in `dev.sh` so they are reachable from browsers on other machines
+- for production-style deployments, expose the frontend to users and keep FastAPI service ports private/internal
 
 ## Frontend
 
@@ -222,14 +222,22 @@ npm install
 npm run dev
 ```
 
-If frontend and backend run on the same VM and you open the UI from another machine, keep these env vars aligned with the VM IP:
+The admin UI uses a Next.js backend-for-frontend route under `/api/backend/*`.
+Browsers should only call the frontend origin; they should not call FastAPI service ports directly.
+Configure backend URLs as server-only environment variables for the Next.js process:
 
 ```bash
-export NEXT_PUBLIC_TELEMETRY_API_URL="http://<VM_IP>:8011"
-export NEXT_PUBLIC_POLICY_SERVICE_URL="http://<VM_IP>:8002"
-export NEXT_PUBLIC_EVALUATION_ENGINE_URL="http://<VM_IP>:8003"
-export NEXT_PUBLIC_ENFORCEMENT_SERVICE_URL="http://<VM_IP>:8004"
+export TELEMETRY_API_URL="http://127.0.0.1:8011"
+export POLICY_SERVICE_URL="http://127.0.0.1:8002"
+export EVALUATION_ENGINE_URL="http://127.0.0.1:8003"
+export ENFORCEMENT_SERVICE_URL="http://127.0.0.1:8004"
+export POSTURE_API_KEY="<secret>"
 ```
+
+Do not prefix these backend URLs or `POSTURE_API_KEY` with `NEXT_PUBLIC_`.
+Only the frontend URL should be exposed to admin users.
+Keep the backend services bound to `127.0.0.1`, Docker/internal networking, or another private interface where possible.
+Endpoint collectors may still need access to telemetry ingestion; treat that collector path separately from admin UI traffic.
 
 Install the shared package first from the repo root:
 
