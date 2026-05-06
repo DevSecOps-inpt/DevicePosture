@@ -64,6 +64,7 @@ export interface Policy {
   id: number;
   name: string;
   description: string | null;
+  trigger_type?: "telemetry_received" | "active_to_inactive";
   policy_scope?: "posture" | "lifecycle";
   lifecycle_event_type?:
     | "telemetry_received"
@@ -76,6 +77,7 @@ export interface Policy {
     adapter?: string;
     adapter_profile?: string | null;
     object_group?: string | null;
+    managed_groups?: Array<{ group_id?: string | null; group_name?: string | null }>;
     execution_gate?: {
       ip_group_condition?: {
         enabled?: boolean;
@@ -85,7 +87,9 @@ export interface Policy {
     } | null;
     on_compliant?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
     on_non_compliant?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
+    on_event?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
   } | null;
+  managed_groups?: Array<{ group_id?: string | null; group_name?: string | null }>;
   created_at: string;
   updated_at: string;
 }
@@ -107,6 +111,7 @@ export interface ComplianceDecision {
   endpoint_ip: string | null;
   policy_id: number | null;
   policy_name: string | null;
+  trigger_type?: "telemetry_received" | "active_to_inactive";
   compliant: boolean;
   recommended_action: "allow" | "quarantine" | "block";
   reasons: EvaluationReason[];
@@ -114,6 +119,8 @@ export interface ComplianceDecision {
     adapter?: string | null;
     adapter_profile?: string | null;
     object_group?: string | null;
+    trigger_type?: "telemetry_received" | "active_to_inactive";
+    managed_groups?: Array<{ group_id?: string | null; group_name?: string | null }>;
     execution_gate?: {
       ip_group_condition?: {
         enabled?: boolean;

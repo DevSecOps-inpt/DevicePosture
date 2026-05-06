@@ -29,6 +29,7 @@ from app.models import (
     ConditionGroupModel,
     Policy,
     PolicyAssignmentModel,
+    PolicyManagedGroupModel,
     UserAccountModel,
 )
 from app.schemas import (
@@ -109,6 +110,29 @@ def ensure_policy_columns() -> None:
 ensure_policy_columns()
 
 
+def ensure_policy_managed_groups_table() -> None:
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE IF NOT EXISTS policy_managed_groups ("
+            "id INTEGER PRIMARY KEY, "
+            "policy_id INTEGER NOT NULL, "
+            "trigger_type VARCHAR(64) NOT NULL, "
+            "group_id VARCHAR(255) NOT NULL, "
+            "group_name VARCHAR(255), "
+            "created_at DATETIME, "
+            "updated_at DATETIME, "
+            "FOREIGN KEY(policy_id) REFERENCES policies(id)"
+            ")"
+        ))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_policy_managed_group_trigger_group "
+            "ON policy_managed_groups(trigger_type, group_id)"
+        ))
+
+
+ensure_policy_managed_groups_table()
+
+
 def ensure_user_columns() -> None:
     inspector = inspect(engine)
     existing_columns = {column["name"] for column in inspector.get_columns("user_accounts")}
@@ -127,6 +151,7 @@ ensure_user_columns()
 def ensure_policy_indexes() -> None:
     statements = [
         "CREATE INDEX IF NOT EXISTS idx_policy_assignments_lookup ON policy_assignments(assignment_type, assignment_value, id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_policy_managed_groups_policy ON policy_managed_groups(policy_id)",
         "CREATE INDEX IF NOT EXISTS idx_policies_scope_active ON policies(policy_scope, is_active, lifecycle_event_type)",
         "CREATE INDEX IF NOT EXISTS idx_condition_groups_type_name ON condition_groups(group_type, name)",
         "CREATE INDEX IF NOT EXISTS idx_auth_providers_enabled_priority ON auth_providers(is_enabled, priority, id)",
@@ -444,10 +469,186 @@ def enrich_policy_conditions_for_storage(conditions: list[dict[str, Any]], db: S
     return enriched
 
 
+def policy_trigger_type(policy: Policy) -> str:
+    if policy.policy_scope == "lifecycle" and policy.lifecycle_event_type == "active_to_inactive":
+        return "active_to_inactive"
+    return "telemetry_received"
+
+
+def trigger_scope(trigger_type: str) -> tuple[str, str | None]:
+    if trigger_type == "active_to_inactive":
+        return "lifecycle", "active_to_inactive"
+    return "posture", None
+
+
+def _group_ref(group_id: str | None, group_name: str | None) -> str:
+    return (group_id or group_name or "").strip()
+
+
+def _extract_action_groups(execution: dict[str, Any]) -> list[dict[str, str | None]]:
+    groups: list[dict[str, str | None]] = []
+
+    def add_group(group_id: Any = None, group_name: Any = None) -> None:
+        normalized_id = str(group_id).strip() if group_id is not None and str(group_id).strip() else None
+        normalized_name = str(group_name).strip() if group_name is not None and str(group_name).strip() else None
+        if not _group_ref(normalized_id, normalized_name):
+            return
+        candidate = {"group_id": normalized_id, "group_name": normalized_name or normalized_id}
+        if candidate not in groups:
+            groups.append(candidate)
+
+    add_group(group_name=execution.get("object_group"))
+    for key in ("managed_groups",):
+        raw_groups = execution.get(key)
+        if isinstance(raw_groups, list):
+            for item in raw_groups:
+                if isinstance(item, dict):
+                    add_group(item.get("group_id"), item.get("group_name") or item.get("name"))
+                else:
+                    add_group(group_name=item)
+
+    for action_key in ("on_compliant", "on_non_compliant", "on_event"):
+        raw_actions = execution.get(action_key)
+        if not isinstance(raw_actions, list):
+            continue
+        for action in raw_actions:
+            if not isinstance(action, dict):
+                continue
+            parameters = action.get("parameters")
+            if not isinstance(parameters, dict):
+                parameters = {}
+            add_group(parameters.get("group_id"), parameters.get("group_name"))
+    return groups
+
+
+def normalize_managed_groups(
+    *,
+    provided_groups: list[Any] | None,
+    execution: dict[str, Any],
+) -> list[dict[str, str | None]]:
+    groups: list[dict[str, str | None]] = []
+    raw_groups = provided_groups if provided_groups is not None else _extract_action_groups(execution)
+    for item in raw_groups:
+        if isinstance(item, dict):
+            group_id = item.get("group_id")
+            group_name = item.get("group_name") or item.get("name")
+        else:
+            group_id = None
+            group_name = item
+        normalized_id = str(group_id).strip() if group_id is not None and str(group_id).strip() else None
+        normalized_name = str(group_name).strip() if group_name is not None and str(group_name).strip() else None
+        canonical = _group_ref(normalized_id, normalized_name)
+        if not canonical:
+            continue
+        candidate = {"group_id": canonical, "group_name": normalized_name or canonical}
+        if candidate not in groups:
+            groups.append(candidate)
+    return groups
+
+
+def validate_managed_group_conflicts(
+    *,
+    db: Session,
+    policy_id: int | None,
+    policy_name: str,
+    trigger_type: str,
+    managed_groups: list[dict[str, str | None]],
+) -> None:
+    for group in managed_groups:
+        group_id = group["group_id"]
+        conflict = db.scalar(
+            select(PolicyManagedGroupModel)
+            .join(Policy, Policy.id == PolicyManagedGroupModel.policy_id)
+            .where(
+                PolicyManagedGroupModel.trigger_type == trigger_type,
+                PolicyManagedGroupModel.group_id == group_id,
+                PolicyManagedGroupModel.policy_id != policy_id,
+            )
+        )
+        if conflict is None:
+            continue
+        display_name = group.get("group_name") or group_id
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Group '{display_name}' is already managed by policy "
+                f"'{conflict.policy.name}' for trigger type '{trigger_type}'."
+            ),
+        )
+
+
+def replace_policy_managed_groups(
+    *,
+    db: Session,
+    policy: Policy,
+    trigger_type: str,
+    managed_groups: list[dict[str, str | None]],
+) -> None:
+    for existing in list(policy.managed_groups):
+        db.delete(existing)
+    db.flush()
+    for group in managed_groups:
+        db.add(
+            PolicyManagedGroupModel(
+                policy_id=policy.id,
+                trigger_type=trigger_type,
+                group_id=str(group["group_id"]),
+                group_name=group.get("group_name"),
+            )
+        )
+
+
+def backfill_policy_managed_groups() -> None:
+    with Session(engine) as db:
+        policies = db.scalars(select(Policy).order_by(Policy.id)).all()
+        changed = False
+        for policy in policies:
+            if policy.managed_groups:
+                continue
+            trigger_type = policy_trigger_type(policy)
+            managed_groups = normalize_managed_groups(
+                provided_groups=None,
+                execution=policy.execution or {},
+            )
+            if not managed_groups:
+                continue
+            try:
+                validate_managed_group_conflicts(
+                    db=db,
+                    policy_id=policy.id,
+                    policy_name=policy.name,
+                    trigger_type=trigger_type,
+                    managed_groups=managed_groups,
+                )
+                replace_policy_managed_groups(
+                    db=db,
+                    policy=policy,
+                    trigger_type=trigger_type,
+                    managed_groups=managed_groups,
+                )
+                changed = True
+            except HTTPException as exc:
+                logger.warning(
+                    "skipping managed-group backfill policy_id=%s policy_name=%s reason=%s",
+                    policy.id,
+                    policy.name,
+                    exc.detail,
+                )
+        if changed:
+            db.commit()
+
+
 def to_policy_response(policy: Policy, *, db: Session | None = None, resolve_groups: bool = False) -> PolicyResponse:
     conditions = policy.conditions
     if resolve_groups and db is not None:
         conditions = expand_condition_groups(policy.conditions, db)
+    trigger_type = policy_trigger_type(policy)
+    managed_groups = [
+        {"group_id": item.group_id, "group_name": item.group_name or item.group_id}
+        for item in policy.managed_groups
+    ]
+    execution = dict(policy.execution or {})
+    execution["managed_groups"] = managed_groups
 
     return PolicyResponse(
         id=policy.id,
@@ -455,13 +656,18 @@ def to_policy_response(policy: Policy, *, db: Session | None = None, resolve_gro
         description=policy.description,
         policy_scope=policy.policy_scope,
         lifecycle_event_type=policy.lifecycle_event_type,
+        trigger_type=trigger_type,
         target_action=policy.target_action,
         is_active=policy.is_active,
         conditions=conditions,
-        execution=policy.execution or None,
+        execution=execution or None,
+        managed_groups=managed_groups,
         created_at=policy.created_at,
         updated_at=policy.updated_at,
     )
+
+
+backfill_policy_managed_groups()
 
 
 def _dedupe_assignments(assignments: list[PolicyAssignmentModel]) -> list[PolicyAssignmentModel]:
@@ -2152,8 +2358,24 @@ def create_policy(
     if duplicate is not None:
         raise HTTPException(status_code=409, detail="Policy with this name already exists")
 
+    trigger_type = payload.trigger_type or "telemetry_received"
+    policy_scope, lifecycle_event_type = trigger_scope(trigger_type)
+    execution_payload = payload.execution.model_dump(mode="json") if payload.execution else {}
+    provided_groups = [item.model_dump(mode="json") for item in payload.managed_groups]
+    managed_groups = normalize_managed_groups(
+        provided_groups=provided_groups if provided_groups else None,
+        execution=execution_payload,
+    )
+    validate_managed_group_conflicts(
+        db=db,
+        policy_id=None,
+        policy_name=name,
+        trigger_type=trigger_type,
+        managed_groups=managed_groups,
+    )
+
     normalized_conditions = [item.model_dump(mode="json") for item in payload.conditions]
-    if payload.policy_scope == "lifecycle" and payload.lifecycle_event_type == "active_to_inactive":
+    if trigger_type == "active_to_inactive":
         normalized_conditions = []
     else:
         normalized_conditions = enrich_policy_conditions_for_storage(normalized_conditions, db)
@@ -2161,19 +2383,26 @@ def create_policy(
     policy = Policy(
         name=name,
         description=payload.description,
-        policy_scope=payload.policy_scope,
-        lifecycle_event_type=payload.lifecycle_event_type,
+        policy_scope=policy_scope,
+        lifecycle_event_type=lifecycle_event_type,
         target_action=payload.target_action,
         is_active=payload.is_active,
         conditions=normalized_conditions,
-        execution=payload.execution.model_dump(mode="json") if payload.execution else {},
+        execution=execution_payload,
     )
     db.add(policy)
     try:
+        db.flush()
+        replace_policy_managed_groups(
+            db=db,
+            policy=policy,
+            trigger_type=trigger_type,
+            managed_groups=managed_groups,
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Policy with this name already exists")
+        raise HTTPException(status_code=409, detail="Policy with this name already exists or group manager conflicts")
     db.refresh(policy)
     return to_policy_response(policy, db=db)
 
@@ -2213,20 +2442,50 @@ def update_policy(
         raise HTTPException(status_code=404, detail="Policy not found")
 
     changes = payload.model_dump(exclude_unset=True)
-    candidate_scope = changes.get("policy_scope", policy.policy_scope)
-    candidate_event_type = changes.get("lifecycle_event_type", policy.lifecycle_event_type)
-    if candidate_scope == "lifecycle" and candidate_event_type is None:
-        raise HTTPException(status_code=422, detail="lifecycle_event_type is required when policy_scope is 'lifecycle'")
-    if candidate_scope == "posture":
-        changes["lifecycle_event_type"] = None
+    raw_trigger_type = changes.pop("trigger_type", None)
+    if raw_trigger_type is not None:
+        candidate_trigger_type = str(raw_trigger_type)
+        candidate_scope, candidate_event_type = trigger_scope(candidate_trigger_type)
+        changes["policy_scope"] = candidate_scope
+        changes["lifecycle_event_type"] = candidate_event_type
+    else:
+        candidate_scope = changes.get("policy_scope", policy.policy_scope)
+        candidate_event_type = changes.get("lifecycle_event_type", policy.lifecycle_event_type)
+        if candidate_scope == "lifecycle" and candidate_event_type is None:
+            raise HTTPException(status_code=422, detail="lifecycle_event_type is required when policy_scope is 'lifecycle'")
+        if candidate_scope == "posture":
+            changes["lifecycle_event_type"] = None
+        candidate_trigger_type = "active_to_inactive" if candidate_scope == "lifecycle" and candidate_event_type == "active_to_inactive" else "telemetry_received"
 
-    if candidate_scope == "lifecycle" and candidate_event_type == "active_to_inactive":
+    if candidate_trigger_type == "active_to_inactive":
         changes["conditions"] = []
     elif "conditions" in changes:
         normalized_conditions = [item.model_dump(mode="json") for item in payload.conditions or []]
         changes["conditions"] = enrich_policy_conditions_for_storage(normalized_conditions, db)
+    execution_payload = policy.execution or {}
+    execution_changed = False
     if "execution" in changes and payload.execution is not None:
-        changes["execution"] = payload.execution.model_dump(mode="json")
+        execution_payload = payload.execution.model_dump(mode="json")
+        changes["execution"] = execution_payload
+        execution_changed = True
+    provided_groups = None
+    if "managed_groups" in changes:
+        raw_groups = payload.managed_groups or []
+        provided_groups = [item.model_dump(mode="json") for item in raw_groups]
+        changes.pop("managed_groups", None)
+    if provided_groups is not None or execution_changed:
+        managed_groups = normalize_managed_groups(
+            provided_groups=provided_groups,
+            execution=execution_payload,
+        )
+    else:
+        managed_groups = [
+            {
+                "group_id": item.group_id,
+                "group_name": item.group_name or item.group_id,
+            }
+            for item in policy.managed_groups
+        ]
     if "name" in changes and changes["name"] is not None:
         normalized_name = str(changes["name"]).strip()
         if not normalized_name:
@@ -2240,14 +2499,27 @@ def update_policy(
         if duplicate is not None:
             raise HTTPException(status_code=409, detail="Policy with this name already exists")
         changes["name"] = normalized_name
+    validate_managed_group_conflicts(
+        db=db,
+        policy_id=policy_id,
+        policy_name=str(changes.get("name") or policy.name),
+        trigger_type=candidate_trigger_type,
+        managed_groups=managed_groups,
+    )
     for key, value in changes.items():
         setattr(policy, key, value)
 
     try:
+        replace_policy_managed_groups(
+            db=db,
+            policy=policy,
+            trigger_type=candidate_trigger_type,
+            managed_groups=managed_groups,
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Policy with this name already exists")
+        raise HTTPException(status_code=409, detail="Policy with this name already exists or group manager conflicts")
     db.refresh(policy)
     return to_policy_response(policy, db=db)
 
@@ -2351,6 +2623,7 @@ def list_endpoint_assigned_policies(
             EndpointAssignedPolicyResponse(
                 policy_id=policy.id,
                 policy_name=policy.name,
+                trigger_type=policy_trigger_type(policy),
                 policy_scope=policy.policy_scope,
                 lifecycle_event_type=policy.lifecycle_event_type,
                 assignment_type=assignment.assignment_type,
@@ -2395,6 +2668,7 @@ def list_endpoint_assigned_policies_batch(
             EndpointAssignedPolicyResponse(
                 policy_id=policy.id,
                 policy_name=policy.name,
+                trigger_type=policy_trigger_type(policy),
                 policy_scope=policy.policy_scope,
                 lifecycle_event_type=policy.lifecycle_event_type,
                 assignment_type=assignment.assignment_type,

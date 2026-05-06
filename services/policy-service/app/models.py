@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -29,6 +29,27 @@ class Policy(Base):
         back_populates="policy",
         cascade="all, delete-orphan",
     )
+    managed_groups: Mapped[list["PolicyManagedGroupModel"]] = relationship(
+        back_populates="policy",
+        cascade="all, delete-orphan",
+    )
+
+
+class PolicyManagedGroupModel(Base):
+    __tablename__ = "policy_managed_groups"
+    __table_args__ = (
+        UniqueConstraint("trigger_type", "group_id", name="uq_policy_managed_group_trigger_group"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    policy_id: Mapped[int] = mapped_column(ForeignKey("policies.id"), index=True)
+    trigger_type: Mapped[str] = mapped_column(String(64), index=True)
+    group_id: Mapped[str] = mapped_column(String(255), index=True)
+    group_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    policy: Mapped[Policy] = relationship(back_populates="managed_groups")
 
 
 class PolicyAssignmentModel(Base):

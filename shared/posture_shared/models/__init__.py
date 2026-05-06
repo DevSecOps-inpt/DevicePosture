@@ -5,6 +5,8 @@ from posture_shared.models.policy import (
     PolicyCondition,
     PolicyExecutionAction,
     PolicyExecutionConfig,
+    PolicyManagedGroup,
+    PolicyTriggerType,
     PosturePolicy,
 )
 from posture_shared.models.telemetry import EndpointTelemetry
@@ -19,5 +21,7 @@ __all__ = [
     "PolicyCondition",
     "PolicyExecutionAction",
     "PolicyExecutionConfig",
+    "PolicyManagedGroup",
+    "PolicyTriggerType",
     "PosturePolicy",
 ]

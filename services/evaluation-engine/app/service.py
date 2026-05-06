@@ -24,9 +24,11 @@ def build_execution_plan(policy: PosturePolicy | None, compliant: bool) -> dict:
         if action.enabled
     ]
     return {
+        "trigger_type": policy.trigger_type,
         "adapter": policy.execution.adapter,
         "adapter_profile": policy.execution.adapter_profile,
         "object_group": policy.execution.object_group,
+        "managed_groups": [item.model_dump(mode="json") for item in policy.managed_groups],
         "actions": enabled_actions,
         "execution_gate": policy.execution.execution_gate.model_dump(mode="json")
         if policy.execution.execution_gate
@@ -57,9 +59,10 @@ def evaluate_telemetry(
     return ComplianceDecision(
         endpoint_id=telemetry.endpoint_id,
         endpoint_ip=resolve_decision_ip(telemetry),
-        policy_id=policy.id,
-        policy_name=policy.name,
-        compliant=compliant,
+            policy_id=policy.id,
+            policy_name=policy.name,
+            trigger_type=policy.trigger_type,
+            compliant=compliant,
         recommended_action="allow" if compliant else policy.target_action,
         reasons=reasons,
         execution_plan=build_execution_plan(policy, compliant),

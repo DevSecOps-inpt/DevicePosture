@@ -8,7 +8,9 @@ from posture_shared.models.policy import (
     PolicyAssignment,
     PolicyCondition,
     PolicyExecutionConfig,
+    PolicyManagedGroup,
     PolicyScope,
+    PolicyTriggerType,
     PosturePolicy,
 )
 
@@ -27,19 +29,40 @@ def _validate_policy_scope(
     return policy_scope, lifecycle_event_type
 
 
+def _scope_for_trigger(trigger_type: PolicyTriggerType) -> tuple[PolicyScope, LifecycleEventType | None]:
+    if trigger_type == "active_to_inactive":
+        return "lifecycle", "active_to_inactive"
+    return "posture", None
+
+
+def _trigger_for_scope(
+    policy_scope: PolicyScope | None,
+    lifecycle_event_type: LifecycleEventType | None,
+) -> PolicyTriggerType:
+    if policy_scope == "lifecycle" and lifecycle_event_type == "active_to_inactive":
+        return "active_to_inactive"
+    return "telemetry_received"
+
+
 class PolicyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    trigger_type: PolicyTriggerType | None = None
     policy_scope: PolicyScope = "posture"
     lifecycle_event_type: LifecycleEventType | None = None
     target_action: Literal["allow", "quarantine", "block"] = "quarantine"
     is_active: bool = True
     conditions: list[PolicyCondition] = Field(default_factory=list)
     execution: PolicyExecutionConfig | None = None
+    managed_groups: list[PolicyManagedGroup] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_scope(self) -> "PolicyCreate":
-        scope, lifecycle_type = _validate_policy_scope(self.policy_scope, self.lifecycle_event_type)
+        if self.trigger_type is not None:
+            scope, lifecycle_type = _scope_for_trigger(self.trigger_type)
+        else:
+            scope, lifecycle_type = _validate_policy_scope(self.policy_scope, self.lifecycle_event_type)
+            self.trigger_type = _trigger_for_scope(scope, lifecycle_type)
         self.policy_scope = scope
         self.lifecycle_event_type = lifecycle_type
         return self
@@ -48,12 +71,14 @@ class PolicyCreate(BaseModel):
 class PolicyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    trigger_type: PolicyTriggerType | None = None
     policy_scope: PolicyScope | None = None
     lifecycle_event_type: LifecycleEventType | None = None
     target_action: Literal["allow", "quarantine", "block"] | None = None
     is_active: bool | None = None
     conditions: list[PolicyCondition] | None = None
     execution: PolicyExecutionConfig | None = None
+    managed_groups: list[PolicyManagedGroup] | None = None
 
 
 class PolicyResponse(PosturePolicy):
@@ -98,6 +123,7 @@ class ConditionGroupResponse(BaseModel):
 class EndpointAssignedPolicyResponse(BaseModel):
     policy_id: int
     policy_name: str
+    trigger_type: PolicyTriggerType = "telemetry_received"
     policy_scope: PolicyScope
     lifecycle_event_type: LifecycleEventType | None = None
     assignment_type: Literal["endpoint", "group", "default"]

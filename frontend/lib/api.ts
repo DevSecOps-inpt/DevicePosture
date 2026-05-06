@@ -153,6 +153,7 @@ export const api = {
     return fetchJson<Array<{
       policy_id: number;
       policy_name: string;
+      trigger_type: "telemetry_received" | "active_to_inactive";
       policy_scope: "posture" | "lifecycle";
       lifecycle_event_type: "telemetry_received" | "active_to_inactive" | null;
       assignment_type: "endpoint" | "group" | "default";
@@ -167,6 +168,7 @@ export const api = {
   createPolicy(payload: {
     name: string;
     description: string | null;
+    trigger_type?: "telemetry_received" | "active_to_inactive";
     policy_scope?: "posture" | "lifecycle";
     lifecycle_event_type?:
       | "telemetry_received"
@@ -179,6 +181,7 @@ export const api = {
       adapter?: string;
       adapter_profile?: string | null;
       object_group?: string | null;
+      managed_groups?: Array<{ group_id?: string | null; group_name?: string | null }>;
       execution_gate?: {
         ip_group_condition?: {
           enabled?: boolean;
@@ -188,7 +191,9 @@ export const api = {
       } | null;
       on_compliant?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
       on_non_compliant?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
+      on_event?: Array<{ action_type: PolicyActionType; enabled?: boolean; parameters?: Record<string, unknown> }>;
     } | null;
+    managed_groups?: Array<{ group_id?: string | null; group_name?: string | null }>;
   }) {
     return fetchJson<Policy>(`${POLICY_SERVICE_URL}/policies`, {
       method: "POST",

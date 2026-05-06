@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 PolicyScope = Literal["posture", "lifecycle"]
+PolicyTriggerType = Literal["telemetry_received", "active_to_inactive"]
 LifecycleEventType = Literal[
     "telemetry_received",
     "inactive_to_active",
@@ -53,9 +54,16 @@ class PolicyExecutionConfig(BaseModel):
     adapter: str = "fortigate"
     adapter_profile: str | None = None
     object_group: str | None = None
+    managed_groups: list[dict[str, str | None]] = Field(default_factory=list)
     on_compliant: list[PolicyExecutionAction] = Field(default_factory=list)
     on_non_compliant: list[PolicyExecutionAction] = Field(default_factory=list)
+    on_event: list[PolicyExecutionAction] = Field(default_factory=list)
     execution_gate: PolicyExecutionGate | None = None
+
+
+class PolicyManagedGroup(BaseModel):
+    group_id: str | None = None
+    group_name: str | None = None
 
 
 class PosturePolicy(BaseModel):
@@ -64,10 +72,12 @@ class PosturePolicy(BaseModel):
     description: str | None = None
     policy_scope: PolicyScope = "posture"
     lifecycle_event_type: LifecycleEventType | None = None
+    trigger_type: PolicyTriggerType = "telemetry_received"
     target_action: Literal["allow", "quarantine", "block"] = "quarantine"
     is_active: bool = True
     conditions: list[PolicyCondition] = Field(default_factory=list)
     execution: PolicyExecutionConfig | None = None
+    managed_groups: list[PolicyManagedGroup] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

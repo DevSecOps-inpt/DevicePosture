@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from posture_shared.models.policy import PolicyTriggerType
+
 
 class EvaluationReason(BaseModel):
     check_type: str
@@ -14,6 +16,7 @@ class ComplianceDecision(BaseModel):
     endpoint_ip: str | None = None
     policy_id: int | None = None
     policy_name: str | None = None
+    trigger_type: PolicyTriggerType = "telemetry_received"
     compliant: bool
     recommended_action: Literal["allow", "quarantine", "block"] = "allow"
     reasons: list[EvaluationReason] = Field(default_factory=list)

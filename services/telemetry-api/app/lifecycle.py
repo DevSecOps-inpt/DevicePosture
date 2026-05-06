@@ -16,16 +16,10 @@ from app.activity import compute_endpoint_activity
 from app.models import Endpoint, EndpointLifecycleEvent, TelemetryRecord
 
 EVENT_TELEMETRY_RECEIVED = "endpoint.telemetry_received"
-EVENT_INACTIVE_TO_ACTIVE = "endpoint.inactive_to_active"
 EVENT_ACTIVE_TO_INACTIVE = "endpoint.active_to_inactive"
-
-# Backward-compatibility aliases for older labels.
-EVENT_FIRST_SEEN = EVENT_TELEMETRY_RECEIVED
-EVENT_REPEAT_SEEN = EVENT_TELEMETRY_RECEIVED
 
 LIFECYCLE_POLICY_EVENT_MAP = {
     EVENT_TELEMETRY_RECEIVED: ["telemetry_received"],
-    EVENT_INACTIVE_TO_ACTIVE: [],
     EVENT_ACTIVE_TO_INACTIVE: ["active_to_inactive"],
 }
 
@@ -135,9 +129,11 @@ def _build_lifecycle_execution_plan(policy: dict, compliant: bool) -> dict:
         return {}
 
     return {
+        "trigger_type": policy.get("trigger_type") or "active_to_inactive",
         "adapter": execution.get("adapter"),
         "adapter_profile": execution.get("adapter_profile"),
         "object_group": execution.get("object_group"),
+        "managed_groups": policy.get("managed_groups") or execution.get("managed_groups") or [],
         "actions": actions,
     }
 
@@ -158,6 +154,7 @@ def _evaluate_lifecycle_policy(
             "endpoint_ip": endpoint_ip,
             "policy_id": policy.get("id"),
             "policy_name": policy.get("name"),
+            "trigger_type": "active_to_inactive",
             "compliant": True,
             "recommended_action": "allow",
             "reasons": [
@@ -179,6 +176,7 @@ def _evaluate_lifecycle_policy(
             "endpoint_ip": endpoint_ip,
             "policy_id": policy.get("id"),
             "policy_name": policy.get("name"),
+            "trigger_type": "active_to_inactive",
             "compliant": True,
             "recommended_action": "allow",
             "reasons": [
@@ -198,6 +196,7 @@ def _evaluate_lifecycle_policy(
             "endpoint_ip": endpoint_ip,
             "policy_id": policy.get("id"),
             "policy_name": policy.get("name"),
+            "trigger_type": "active_to_inactive",
             "compliant": False,
             "recommended_action": policy.get("target_action") or "quarantine",
             "reasons": [

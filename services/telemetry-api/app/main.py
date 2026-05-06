@@ -21,9 +21,6 @@ from sqlalchemy.orm import Session
 from app.activity import DEFAULT_ACTIVITY_GRACE_MULTIPLIER, build_endpoint_summary
 from app.db import Base, engine, get_db
 from app.lifecycle import (
-    EVENT_INACTIVE_TO_ACTIVE,
-    EVENT_TELEMETRY_RECEIVED,
-    create_lifecycle_event,
     reconcile_inactive_transitions,
 )
 from app.models import Endpoint, EndpointLifecycleEvent, TelemetryRecord
@@ -361,42 +358,12 @@ def submit_telemetry(
         record.raw_payload = telemetry_payload
         record.created_at = datetime.now(timezone.utc)
     db.flush()
-    lifecycle_event_type = EVENT_TELEMETRY_RECEIVED
-    common_event_details = {
-        "record_id": record.id,
-        "collector_type": telemetry.collector_type,
-        "source_ip": source_ip,
-        "reported_ipv4": telemetry.network.ipv4,
-        "endpoint_ip": source_ip or telemetry.network.ipv4,
-    }
-    if previous_status == "inactive":
-        create_lifecycle_event(
-            db=db,
-            endpoint=endpoint,
-            event_type=EVENT_INACTIVE_TO_ACTIVE,
-            previous_status=previous_status,
-            current_status="active",
-            details=common_event_details,
-            telemetry_payload=record.raw_payload,
-            logger=logger,
-        )
-
-    create_lifecycle_event(
-        db=db,
-        endpoint=endpoint,
-        event_type=EVENT_TELEMETRY_RECEIVED,
-        previous_status=previous_status,
-        current_status="active",
-        details=common_event_details,
-        telemetry_payload=record.raw_payload,
-        logger=logger,
-    )
     db.commit()
     db.refresh(record)
     background_tasks.add_task(trigger_posture_evaluation, telemetry.endpoint_id)
 
     logger.info(
-        "stored telemetry endpoint_id=%s hostname=%s source_ip=%s record_id=%s interval=%s grace_multiplier=%s activity_timeout=%s created_endpoint=%s lifecycle_event=%s",
+        "stored telemetry endpoint_id=%s hostname=%s source_ip=%s record_id=%s interval=%s grace_multiplier=%s activity_timeout=%s created_endpoint=%s trigger_type=%s",
         telemetry.endpoint_id,
         telemetry.hostname,
         source_ip,
@@ -405,7 +372,7 @@ def submit_telemetry(
         endpoint.activity_grace_multiplier,
         (endpoint.expected_interval_seconds or 0) * (endpoint.activity_grace_multiplier or DEFAULT_ACTIVITY_GRACE_MULTIPLIER),
         created_endpoint,
-        lifecycle_event_type,
+        "telemetry_received",
     )
 
     return TelemetryIngestResponse(
