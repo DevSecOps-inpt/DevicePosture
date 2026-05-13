@@ -594,6 +594,65 @@ function Get-PayloadTimeoutSeconds {
     return [Math]::Max(1, [int]$Config.server.timeout_seconds)
 }
 
+function Invoke-JsonBytesRequest {
+    param(
+        [string]$Url,
+        [byte[]]$BodyBytes,
+        [string]$ContentType,
+        [System.Collections.IDictionary]$Headers,
+        [int]$TimeoutSeconds
+    )
+
+    $request = [System.Net.HttpWebRequest]::Create($Url)
+    $request.Method = "POST"
+    $request.ContentType = $ContentType
+    $request.ContentLength = $BodyBytes.Length
+    $request.Timeout = [Math]::Max(1, $TimeoutSeconds) * 1000
+    $request.ReadWriteTimeout = [Math]::Max(1, $TimeoutSeconds) * 1000
+    $request.KeepAlive = $false
+    $request.UserAgent = "DevicePosture-PowerShell-Collector"
+
+    if ($Headers -is [System.Collections.IDictionary]) {
+        foreach ($headerKey in $Headers.Keys) {
+            $headerValue = [string]$Headers[$headerKey]
+            if ([string]::IsNullOrWhiteSpace($headerValue)) {
+                continue
+            }
+            $request.Headers[$headerKey] = $headerValue
+        }
+    }
+
+    $requestStream = $null
+    try {
+        $requestStream = $request.GetRequestStream()
+        $requestStream.Write($BodyBytes, 0, $BodyBytes.Length)
+    }
+    finally {
+        if ($null -ne $requestStream) {
+            $requestStream.Close()
+        }
+    }
+
+    $response = $null
+    $reader = $null
+    try {
+        $response = $request.GetResponse()
+        $reader = New-Object System.IO.StreamReader($response.GetResponseStream(), [System.Text.UTF8Encoding]::new($false))
+        return @{
+            status_code = [int]$response.StatusCode
+            content = $reader.ReadToEnd()
+        }
+    }
+    finally {
+        if ($null -ne $reader) {
+            $reader.Close()
+        }
+        if ($null -ne $response) {
+            $response.Close()
+        }
+    }
+}
+
 function Send-TelemetryPayload {
     param(
         [System.Collections.IDictionary]$Config,
@@ -632,24 +691,13 @@ function Send-TelemetryPayload {
     for ($attempt = 1; $attempt -le $retries; $attempt++) {
         try {
             Write-AgentLog -Config $Config -Level "INFO" -Message "Sending $PayloadType attempt $attempt to $url bytes=$($jsonBytes.Length) content_type=$contentType content_encoding=$contentEncoding hex_preview=$($dumpInfo.hex_preview)"
-            $invokeParams = @{
-                Uri = $url
-                Method = "Post"
-                Body = $jsonBytes
-                ContentType = $contentType
-                TimeoutSec = $timeout
-                UseBasicParsing = $true
-            }
-            if ($headers.Count -gt 0) {
-                $invokeParams.Headers = $headers
-            }
-            $rawResponse = Invoke-WebRequest @invokeParams
-            $response = if (-not [string]::IsNullOrWhiteSpace($rawResponse.Content)) {
-                $rawResponse.Content | ConvertFrom-Json
+            $rawResponse = Invoke-JsonBytesRequest -Url $url -BodyBytes $jsonBytes -ContentType $contentType -Headers $headers -TimeoutSeconds $timeout
+            $response = if (-not [string]::IsNullOrWhiteSpace($rawResponse.content)) {
+                $rawResponse.content | ConvertFrom-Json
             } else {
                 $null
             }
-            Write-AgentLog -Config $Config -Level "INFO" -Message "$PayloadType POST succeeded"
+            Write-AgentLog -Config $Config -Level "INFO" -Message "$PayloadType POST succeeded status=$($rawResponse.status_code)"
             return $response
         }
         catch {
@@ -665,7 +713,7 @@ function Send-TelemetryPayload {
             }
             if ($_.Exception.Response -and $_.Exception.Response.GetResponseStream()) {
                 try {
-                    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream(), [System.Text.UTF8Encoding]::new($false))
                     $responseBody = $reader.ReadToEnd()
                     if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
                         $errorDetail = "$errorDetail response=$responseBody"
