@@ -17,6 +17,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -1972,17 +1973,64 @@ def update_ip_object(
     return to_ip_object_response(item)
 
 
-@app.delete("/objects/ip-objects/{object_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/objects/ip-objects/{object_id}", response_model=dict)
 def delete_ip_object(
     object_id: str,
+    force: bool = Query(default=False),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
-) -> None:
+) -> dict:
     item = find_object_by_id(db, object_id)
     if item is None:
         raise HTTPException(status_code=404, detail="IP object not found")
+
+    memberships = db.scalars(
+        select(IpGroupMemberModel)
+        .options(selectinload(IpGroupMemberModel.group))
+        .where(IpGroupMemberModel.object_ref == item.id)
+    ).all()
+    if memberships and not force:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Object is still a member of groups",
+                "group_ids": [membership.group.group_id for membership in memberships],
+                "group_names": [membership.group.name for membership in memberships],
+                "hint": "Use force=true to remove memberships first",
+            },
+        )
+
+    removed_memberships = [
+        {
+            "group_id": membership.group.group_id,
+            "group_name": membership.group.name,
+            "object_id": item.object_id,
+            "ip_address": item.value,
+        }
+        for membership in memberships
+    ]
+    for membership in memberships:
+        db.delete(membership)
+
+    audit_payload = {
+        "object_id": item.object_id,
+        "object_name": item.name,
+        "object_type": item.object_type,
+        "ip_address": item.value,
+        "operation": "deleted",
+        "force": force,
+        "removed_memberships": removed_memberships,
+        "source": "admin",
+    }
+    store_audit_event(db, "object.manual_delete", None, audit_payload)
     db.delete(item)
     db.commit()
+    return {
+        "status": "success",
+        "operation": "deleted",
+        "object_id": object_id,
+        "removed_memberships": removed_memberships,
+    }
 
 
 @app.get("/objects/ip-groups", response_model=list[IpGroupResponse])

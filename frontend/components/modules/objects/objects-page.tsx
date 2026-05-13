@@ -304,25 +304,25 @@ export function ObjectsPage() {
     }
 
     try {
-      let currentGroupName = groupDraft.name.trim();
+      let currentGroupIdentifier = editingIpGroupId ?? groupDraft.name.trim();
       if (editingIpGroupId) {
         const updated = await api.updateIpGroup(editingIpGroupId, {
           name: groupDraft.name.trim(),
           description: groupDraft.description.trim() || null,
         });
         const updatedGroup = updated as ApiIpGroup;
-        currentGroupName = updatedGroup.name;
+        currentGroupIdentifier = updatedGroup.group_id;
         const wanted = new Set(groupDraft.memberObjectIds);
         const current = new Set(editingGroupOriginalMembers);
 
         for (const objectId of wanted) {
           if (!current.has(objectId)) {
-            await api.addObjectToGroup(currentGroupName, objectId);
+            await api.addObjectToGroup(currentGroupIdentifier, objectId);
           }
         }
         for (const objectId of current) {
           if (!wanted.has(objectId)) {
-            await api.removeObjectFromGroup(currentGroupName, objectId);
+            await api.removeObjectFromGroup(currentGroupIdentifier, objectId);
           }
         }
         pushToast({ tone: "success", title: "IP group updated" });
@@ -332,9 +332,9 @@ export function ObjectsPage() {
           description: groupDraft.description.trim() || null,
         });
         const createdGroup = created as ApiIpGroup;
-        currentGroupName = createdGroup.name;
+        currentGroupIdentifier = createdGroup.group_id;
         for (const objectId of groupDraft.memberObjectIds) {
-          await api.addObjectToGroup(currentGroupName, objectId);
+          await api.addObjectToGroup(currentGroupIdentifier, objectId);
         }
         pushToast({ tone: "success", title: "IP group created" });
       }
@@ -398,18 +398,40 @@ export function ObjectsPage() {
   }
 
   async function removeIpObject(item: ApiIpObject) {
-    if (!window.confirm(`Delete IP object "${item.name}"?`)) {
+    const force = item.group_count > 0
+      ? window.confirm(
+          `This object belongs to ${item.group_count} group${item.group_count === 1 ? "" : "s"}. Delete it and remove memberships?`
+        )
+      : false;
+    if (item.group_count > 0 && !force) {
+      return;
+    }
+    if (item.group_count === 0 && !window.confirm(`Delete IP object "${item.name}"?`)) {
       return;
     }
     try {
-      await api.deleteIpObject(item.object_id);
+      await api.deleteIpObject(item.object_id, { force });
       pushToast({ tone: "success", title: "IP object deleted" });
       await loadData();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      try {
+        const parsed = JSON.parse(message) as { group_names?: string[]; hint?: string };
+        if (Array.isArray(parsed.group_names) && window.confirm(
+          `Object is still a member of: ${parsed.group_names.join(", ")}.\n\n${parsed.hint ?? "Delete it and remove memberships first?"}`
+        )) {
+          await api.deleteIpObject(item.object_id, { force: true });
+          pushToast({ tone: "success", title: "IP object deleted" });
+          await loadData();
+          return;
+        }
+      } catch {
+        // Keep the original backend message below.
+      }
       pushToast({
         tone: "error",
         title: "Failed to delete object",
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: message,
       });
     }
   }

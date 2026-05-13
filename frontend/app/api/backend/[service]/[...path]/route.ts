@@ -68,6 +68,19 @@ function buildForwardHeaders(request: NextRequest, service: BackendService, hasB
   return headers;
 }
 
+function requestHasForwardableBody(request: NextRequest, method: string): boolean {
+  if (["GET", "HEAD"].includes(method)) {
+    return false;
+  }
+  const contentLength = request.headers.get("content-length");
+  const transferEncoding = request.headers.get("transfer-encoding");
+  return Boolean(
+    transferEncoding ||
+    (contentLength !== null && contentLength !== "0") ||
+    request.headers.get("content-type")
+  );
+}
+
 function buildResponseHeaders(backendResponse: Response): Headers {
   const headers = new Headers();
   backendResponse.headers.forEach((value, key) => {
@@ -92,7 +105,7 @@ async function proxyRequest(
   }
 
   const method = request.method.toUpperCase();
-  const hasBody = !["GET", "HEAD"].includes(method);
+  const hasBody = requestHasForwardableBody(request, method);
   let targetUrl: string;
   try {
     targetUrl = buildBackendUrl(params.service, params.path ?? [], request.nextUrl.search);

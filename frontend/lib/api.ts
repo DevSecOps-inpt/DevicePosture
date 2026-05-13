@@ -9,8 +9,6 @@ import type {
   DirectoryGroupSearchResponse,
   EndpointSummary,
   EnforcementResult,
-  IpGroup,
-  IpObject,
   LoginResponse,
   PolicyActionType,
   Policy,
@@ -458,8 +456,14 @@ export const api = {
     });
   },
 
-  deleteIpObject(objectId: string) {
-    return fetchJson<void>(`${ENFORCEMENT_SERVICE_URL}/objects/ip-objects/${objectId}`, {
+  deleteIpObject(objectId: string, options?: { force?: boolean }) {
+    const suffix = options?.force ? "?force=true" : "";
+    return fetchJson<{
+      status: string;
+      operation: string;
+      object_id: string;
+      removed_memberships: Array<{ group_id: string; group_name: string; object_id: string; ip_address: string }>;
+    }>(`${ENFORCEMENT_SERVICE_URL}/objects/ip-objects/${objectId}${suffix}`, {
       method: "DELETE"
     });
   },
@@ -496,16 +500,16 @@ export const api = {
     });
   },
 
-  addObjectToGroup(groupName: string, objectId: string) {
-    return fetchJson<IpGroup>(`${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupName)}/members`, {
+  addObjectToGroup(groupIdOrName: string, objectId: string) {
+    return fetchJson<{ status: string; operation: string; group: ApiIpGroupLike; warning?: string | null }>(`${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupIdOrName)}/members`, {
       method: "POST",
       body: JSON.stringify({ object_id: objectId })
     });
   },
 
-  removeObjectFromGroup(groupName: string, objectId: string) {
+  removeObjectFromGroup(groupIdOrName: string, objectId: string) {
     return fetchJson<{ status: string; operation: string; group: ApiIpGroupLike; warning?: string | null }>(
-      `${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(objectId)}`,
+      `${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupIdOrName)}/members/${encodeURIComponent(objectId)}`,
       {
         method: "DELETE"
       }
