@@ -64,6 +64,7 @@ function Get-DefaultConfig {
             bearer_token = ""
             headers = @{}
         }
+        dry_run = $false
         scheduling = @{
             heartbeat_interval_seconds = 3
             posture_interval_seconds = 3
@@ -73,10 +74,12 @@ function Get-DefaultConfig {
             send_full_inventory_on_resync_required = $true
         }
         payload = @{
-            gzip_enabled = $true
+            gzip_enabled = $false
             max_payload_bytes = 10485760
             include_sequence_numbers = $true
             include_hashes = $true
+            debug_payload_dump_enabled = $false
+            debug_payload_dump_dir = ".\\logs\\payload-dumps"
         }
         heartbeat = @{
             enabled = $true
@@ -260,6 +263,7 @@ function Read-CollectorConfig {
     }
     if ($NoSend) {
         $config.server.enabled = $false
+        $config.dry_run = $true
     }
 
     return Normalize-CollectorConfig -Config $config
@@ -288,7 +292,12 @@ function Write-AgentLog {
     $timestamp = (Get-Date).ToUniversalTime().ToString("o")
     $line = "$timestamp [$Level] $Message"
     if (-not $Quiet -or $Level -in @("WARN", "ERROR")) {
-        Write-Host $line
+        try {
+            Write-Host $line
+        }
+        catch {
+            # Keep collection alive even if the host console is unavailable.
+        }
     }
 
     $logPath = Resolve-AgentPath -PathValue $Config.agent.log_path
@@ -298,9 +307,19 @@ function Write-AgentLog {
             $line | Out-File -FilePath $logPath -Append -Encoding utf8
         }
         catch {
-            $fallback = Resolve-AgentPath -PathValue "%ProgramData%\\DevicePosture\\collector-fallback.log"
-            Ensure-ParentDirectory -FilePath $fallback
-            $line | Out-File -FilePath $fallback -Append -Encoding utf8
+            try {
+                $fallback = Resolve-AgentPath -PathValue "%ProgramData%\\DevicePosture\\collector-fallback.log"
+                Ensure-ParentDirectory -FilePath $fallback
+                $line | Out-File -FilePath $fallback -Append -Encoding utf8
+            }
+            catch {
+                try {
+                    Write-Host $line
+                }
+                catch {
+                    # Last-resort logging failed; never stop the collector because of logging.
+                }
+            }
         }
     }
 }
@@ -490,6 +509,34 @@ function ConvertTo-JsonBytes {
     return $jsonBytes
 }
 
+function Write-DebugPayloadDump {
+    param(
+        [System.Collections.IDictionary]$Config,
+        [string]$PayloadType,
+        [string]$PayloadJson
+    )
+
+    if (-not [bool]$Config.payload.debug_payload_dump_enabled) {
+        return
+    }
+
+    try {
+        $dumpDir = Resolve-AgentPath -PathValue $Config.payload.debug_payload_dump_dir
+        if ([string]::IsNullOrWhiteSpace($dumpDir)) {
+            return
+        }
+        if (-not (Test-Path $dumpDir)) {
+            New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+        }
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+        $fileName = "$timestamp-$PayloadType.json"
+        $PayloadJson | Out-File -FilePath (Join-Path $dumpDir $fileName) -Encoding utf8
+    }
+    catch {
+        Write-AgentLog -Config $Config -Level "WARN" -Message "Failed to write debug payload dump for $PayloadType`: $($_.Exception.Message)"
+    }
+}
+
 function Send-TelemetryPayload {
     param(
         [System.Collections.IDictionary]$Config,
@@ -497,7 +544,8 @@ function Send-TelemetryPayload {
         [string]$PayloadJson
     )
 
-    if ((Test-DictionaryKey -Dictionary $Config.server -Key "enabled") -and -not [bool]$Config.server.enabled) {
+    if ([bool]$Config.dry_run -or ((Test-DictionaryKey -Dictionary $Config.server -Key "enabled") -and -not [bool]$Config.server.enabled)) {
+        Write-AgentLog -Config $Config -Level "INFO" -Message "Dry-run enabled; not sending $PayloadType"
         return $null
     }
 
@@ -540,11 +588,19 @@ function Send-TelemetryPayload {
             return $response
         }
         catch {
+            $statusCode = $null
             $errorDetail = $_.Exception.Message
+            if ($_.Exception.Response) {
+                try {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                }
+                catch {
+                    $statusCode = $null
+                }
+            }
             if ($_.Exception.Response -and $_.Exception.Response.GetResponseStream()) {
                 try {
-                    $stream = $_.Exception.Response.GetResponseStream()
-                    $reader = New-Object System.IO.StreamReader($stream)
+                    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
                     $responseBody = $reader.ReadToEnd()
                     if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
                         $errorDetail = "$errorDetail response=$responseBody"
@@ -554,7 +610,7 @@ function Send-TelemetryPayload {
                     $errorDetail = "$errorDetail response=<failed to read error body: $($_.Exception.Message)>"
                 }
             }
-            Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType POST attempt $attempt failed: $errorDetail"
+            Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType POST attempt $attempt failed url=$url status=$statusCode bytes=$($jsonBytes.Length): $errorDetail"
             if ($attempt -eq $retries) {
                 throw
             }
@@ -581,8 +637,10 @@ function Get-BaseEndpointPayload {
     return @{
         schema_version = "1.1"
         payload_type = $PayloadType
+        endpoint_ref = Get-EndpointId
         endpoint_id = Get-EndpointId
         hostname = $env:COMPUTERNAME
+        sent_at = (Get-Date).ToUniversalTime().ToString("o")
         collected_at = (Get-Date).ToUniversalTime().ToString("o")
         ip_address = Get-ActiveIPv4
         network = @{ ipv4 = Get-ActiveIPv4 }
@@ -600,6 +658,7 @@ function New-HeartbeatPayload {
 
     $payload = Get-BaseEndpointPayload -Config $Config -PayloadType "heartbeat"
     $payload.agent.interval_seconds = [int]$Config.scheduling.heartbeat_interval_seconds
+    $payload.heartbeat_interval_seconds = [int]$Config.scheduling.heartbeat_interval_seconds
     $payload.uptime_seconds = Get-AgentUptimeSeconds
     return $payload
 }
@@ -670,6 +729,7 @@ function New-PostureSnapshotPayload {
     $payload.schema_version = "1.1"
     $payload.collector_type = [string]$Config.agent.agent_name
     $payload.agent.interval_seconds = [int]$Config.scheduling.posture_interval_seconds
+    $payload.posture_interval_seconds = [int]$Config.scheduling.posture_interval_seconds
 
     $requiredServices = Get-NamedServiceStatus -Names @($Config.posture_snapshot.required_services)
     $forbiddenProcesses = Get-ProcessFindings -Names @($Config.posture_snapshot.forbidden_processes) -ExpectedPresent $false
@@ -689,6 +749,13 @@ function New-PostureSnapshotPayload {
         required_services = $requiredServices
         forbidden_process_findings = $forbiddenProcesses
         security_process_findings = $securityProcesses
+    }
+    $payload.posture = @{
+        system_info = $payload.os
+        antivirus = $payload.antivirus_products
+        required_services = $requiredServices
+        forbidden_processes_found = @($forbiddenProcesses | Where-Object { $_.present })
+        security_processes_found = @($securityProcesses | Where-Object { $_.present })
     }
     return $payload
 }
@@ -791,6 +858,13 @@ function New-FullInventoryPayload {
     $payload.baseline_id = [string]$State.baseline_id
     $payload.sequence_number = [int]$State.sequence_number
     $payload.current_hash = [string]$State.current_hash
+    $payload.category = "all"
+    $payload.inventory = @{
+        services = @($payload.services)
+        processes = @($payload.processes)
+        hotfixes = @($payload.hotfixes)
+        software = @($payload.software)
+    }
     Write-CollectorState -Config $Config -State $State
     return $payload
 }
@@ -834,6 +908,7 @@ function New-InventoryDeltaPayload {
     $payload.previous_hash = $previousHash
     $payload.current_hash = [string]$State.current_hash
     $payload.changes = $changes
+    $payload.category = "all"
     Write-CollectorState -Config $Config -State $State
     return $payload
 }
@@ -845,8 +920,9 @@ function Send-PayloadObject {
         [System.Collections.IDictionary]$Payload
     )
 
-    $payloadJson = $Payload | ConvertTo-Json -Depth 20
+    $payloadJson = $Payload | ConvertTo-Json -Depth 50 -Compress
     Write-PayloadToDisk -Config $Config -PayloadJson $payloadJson
+    Write-DebugPayloadDump -Config $Config -PayloadType $PayloadType -PayloadJson $payloadJson
     if (-not $Quiet) {
         Write-Output $payloadJson
     }
@@ -854,6 +930,24 @@ function Send-PayloadObject {
         return Send-TelemetryPayload -Config $Config -PayloadType $PayloadType -PayloadJson $payloadJson
     }
     return $null
+}
+
+function Invoke-PayloadSafely {
+    param(
+        [System.Collections.IDictionary]$Config,
+        [string]$PayloadType,
+        [scriptblock]$BuildPayload
+    )
+
+    try {
+        $payload = & $BuildPayload
+        $response = Send-PayloadObject -Config $Config -PayloadType $PayloadType -Payload $payload
+        return @{ success = $true; response = $response }
+    }
+    catch {
+        Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType loop failed but collector will continue: $($_.Exception.Message)"
+        return @{ success = $false; response = $null }
+    }
 }
 
 function Invoke-AgentOnce {
@@ -895,51 +989,70 @@ function Start-AgentLoop {
 
     while ($true) {
         $now = Get-Date
-        try {
-            if ([bool]$Config.heartbeat.enabled -and (($now - $lastHeartbeat).TotalSeconds -ge $heartbeatInterval)) {
-                Send-PayloadObject -Config $Config -PayloadType "heartbeat" -Payload (New-HeartbeatPayload -Config $Config) | Out-Null
+        if ([bool]$Config.heartbeat.enabled -and (($now - $lastHeartbeat).TotalSeconds -ge $heartbeatInterval)) {
+            $heartbeatResult = Invoke-PayloadSafely -Config $Config -PayloadType "heartbeat" -BuildPayload {
+                New-HeartbeatPayload -Config $Config
+            }
+            if ([bool]$heartbeatResult.success) {
                 $lastHeartbeat = $now
             }
-            if ([bool]$Config.posture_snapshot.enabled -and (($now - $lastPosture).TotalSeconds -ge $postureInterval)) {
-                Send-PayloadObject -Config $Config -PayloadType "posture_snapshot" -Payload (New-PostureSnapshotPayload -Config $Config) | Out-Null
+        }
+        if ([bool]$Config.posture_snapshot.enabled -and (($now - $lastPosture).TotalSeconds -ge $postureInterval)) {
+            $postureResult = Invoke-PayloadSafely -Config $Config -PayloadType "posture_snapshot" -BuildPayload {
+                New-PostureSnapshotPayload -Config $Config
+            }
+            if ([bool]$postureResult.success) {
                 $lastPosture = $now
             }
-            if ([bool]$Config.inventory.enabled -and (($now - $lastDelta).TotalSeconds -ge $deltaInterval)) {
-                $response = Send-PayloadObject -Config $Config -PayloadType "inventory_delta" -Payload (New-InventoryDeltaPayload -Config $Config -State $state)
+        }
+        if ([bool]$Config.inventory.enabled -and (($now - $lastDelta).TotalSeconds -ge $deltaInterval)) {
+            $deltaResult = Invoke-PayloadSafely -Config $Config -PayloadType "inventory_delta" -BuildPayload {
+                New-InventoryDeltaPayload -Config $Config -State $state
+            }
+            if ([bool]$deltaResult.success) {
+                $response = $deltaResult.response
                 if ($null -ne $response -and $response.PSObject.Properties.Name -contains "resync_required" -and [bool]$response.resync_required -and [bool]$Config.scheduling.send_full_inventory_on_resync_required) {
                     Write-AgentLog -Config $Config -Level "WARN" -Message "Server requested inventory resync: $($response.reason)"
-                    Send-PayloadObject -Config $Config -PayloadType "inventory_full" -Payload (New-FullInventoryPayload -Config $Config -State $state) | Out-Null
-                    $lastFull = Get-Date
+                    $resyncResult = Invoke-PayloadSafely -Config $Config -PayloadType "inventory_full" -BuildPayload {
+                        New-FullInventoryPayload -Config $Config -State $state
+                    }
+                    if ([bool]$resyncResult.success) {
+                        $lastFull = Get-Date
+                    }
                 }
                 $lastDelta = $now
             }
-            if ([bool]$Config.inventory.enabled -and (($now - $lastFull).TotalSeconds -ge $fullInterval)) {
-                Send-PayloadObject -Config $Config -PayloadType "inventory_full" -Payload (New-FullInventoryPayload -Config $Config -State $state) | Out-Null
+        }
+        if ([bool]$Config.inventory.enabled -and (($now - $lastFull).TotalSeconds -ge $fullInterval)) {
+            $fullResult = Invoke-PayloadSafely -Config $Config -PayloadType "inventory_full" -BuildPayload {
+                New-FullInventoryPayload -Config $Config -State $state
+            }
+            if ([bool]$fullResult.success) {
                 $lastFull = $now
             }
-        }
-        catch {
-            Write-AgentLog -Config $Config -Level "ERROR" -Message "Collector cycle failed: $($_.Exception.Message)"
         }
 
         Start-Sleep -Seconds 1
     }
 }
 
-Import-CollectorPlugins
-$resolvedConfigPath = if ([string]::IsNullOrWhiteSpace($ConfigPath)) { Get-DefaultConfigPath } else { $ConfigPath }
-$config = Read-CollectorConfig -Path $resolvedConfigPath
-Write-AgentLog -Config $config -Level "INFO" -Message "Loaded collector config from $resolvedConfigPath"
+try {
+    Import-CollectorPlugins
+    $resolvedConfigPath = if ([string]::IsNullOrWhiteSpace($ConfigPath)) { Get-DefaultConfigPath } else { $ConfigPath }
+    $config = Read-CollectorConfig -Path $resolvedConfigPath
+    Write-AgentLog -Config $config -Level "INFO" -Message "Loaded collector config from $resolvedConfigPath"
 
-if ($Mode -eq "Run") {
-    Start-AgentLoop -Config $config
-}
-else {
-    try {
+    if ($Mode -eq "Run") {
+        Start-AgentLoop -Config $config
+    }
+    else {
         Invoke-AgentOnce -Config $config
     }
-    catch {
-        Write-Error "Failed to send telemetry. $($_.Exception.Message)"
-        exit 1
+}
+catch {
+    if ($null -ne $config) {
+        Write-AgentLog -Config $config -Level "ERROR" -Message "Collector fatal error: $($_.Exception.Message)"
     }
+    Write-Error "Collector fatal error. $($_.Exception.Message)"
+    exit 1
 }

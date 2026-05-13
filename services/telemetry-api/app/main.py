@@ -16,6 +16,7 @@ from urllib.parse import quote_plus
 from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import ValidationError
@@ -195,6 +196,110 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1200, compresslevel=6)
 
 
+def _safe_payload_keys(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    return sorted(str(key) for key in payload.keys())[:30]
+
+
+def _validation_detail(
+    *,
+    error: str,
+    payload_type: str | None = None,
+    missing_fields: list[str] | None = None,
+    invalid_fields: list[dict[str, Any]] | None = None,
+    example_shape: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "error": error,
+        "payload_type": payload_type or "unknown",
+        "missing_fields": missing_fields or [],
+        "invalid_fields": invalid_fields or [],
+    }
+    if reason:
+        detail["reason"] = reason
+    if example_shape is not None:
+        detail["example_shape"] = example_shape
+    return detail
+
+
+def _example_shape(payload_type: str) -> dict[str, Any]:
+    if payload_type == "heartbeat":
+        return {
+            "payload_type": "heartbeat",
+            "endpoint_ref": "endpoint-123",
+            "hostname": "PC-01",
+            "ip_address": "10.10.10.10",
+            "heartbeat_interval_seconds": 3,
+            "sequence_number": 1,
+            "sent_at": "2026-05-13T00:00:00Z",
+        }
+    if payload_type in {"posture", "posture_snapshot"}:
+        return {
+            "payload_type": "posture_snapshot",
+            "endpoint_ref": "endpoint-123",
+            "hostname": "PC-01",
+            "ip_address": "10.10.10.10",
+            "posture_interval_seconds": 3,
+            "sequence_number": 1,
+            "sent_at": "2026-05-13T00:00:00Z",
+            "posture": {
+                "system_info": {},
+                "antivirus": [],
+                "required_services": [],
+                "forbidden_processes_found": [],
+                "security_processes_found": [],
+            },
+        }
+    if payload_type == "inventory_delta":
+        return {
+            "payload_type": "inventory_delta",
+            "endpoint_ref": "endpoint-123",
+            "category": "services",
+            "baseline_id": "baseline-1",
+            "sequence_number": 2,
+            "previous_hash": "previous",
+            "current_hash": "current",
+            "changes": {"added": [], "updated": [], "removed": []},
+            "sent_at": "2026-05-13T00:00:00Z",
+        }
+    return {
+        "payload_type": "inventory_full",
+        "endpoint_ref": "endpoint-123",
+        "hostname": "PC-01",
+        "ip_address": "10.10.10.10",
+        "category": "all",
+        "baseline_id": "baseline-1",
+        "sequence_number": 1,
+        "sent_at": "2026-05-13T00:00:00Z",
+        "inventory": {"services": [], "processes": [], "hotfixes": [], "software": []},
+    }
+
+
+def _telemetry_http_error(status_code: int, detail: dict[str, Any]) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+@app.exception_handler(HTTPException)
+async def telemetry_http_exception_handler(request: Request, exc: HTTPException):
+    if request.url.path.startswith("/telemetry") and exc.status_code in {400, 422}:
+        detail = exc.detail
+        if not isinstance(detail, dict) or "error" not in detail:
+            detail = _validation_detail(error=str(exc.detail), payload_type="unknown")
+        logger.warning(
+            "rejected telemetry path=%s content_type=%s content_encoding=%s payload_size_bytes=%s remote_addr=%s validation_error=%s",
+            request.url.path,
+            request.headers.get("content-type"),
+            request.headers.get("content-encoding"),
+            request.headers.get("content-length"),
+            request.client.host if request.client else None,
+            detail,
+        )
+        return JSONResponse(status_code=exc.status_code, content=detail)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 @app.middleware("http")
 async def request_observability_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID", "").strip() or str(uuid4())
@@ -324,26 +429,33 @@ def _stable_hash(payload: Any) -> str:
 
 
 async def _read_telemetry_body(request: Request) -> tuple[dict[str, Any], int]:
+    payload_type_hint = request.url.path.rsplit("/", 1)[-1] if request.url.path else "unknown"
     content_length = request.headers.get("content-length", "").strip()
     if content_length:
         try:
             if int(content_length) > MAX_TELEMETRY_BODY_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail="Telemetry payload is too large",
+                raise _telemetry_http_error(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    _validation_detail(error="Telemetry payload is too large", payload_type=payload_type_hint),
                 )
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
+            raise _telemetry_http_error(
+                400,
+                _validation_detail(error="Invalid Content-Length header", payload_type=payload_type_hint),
+            )
 
     body = await request.body()
     if len(body) > MAX_TELEMETRY_BODY_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Telemetry payload is too large",
+        raise _telemetry_http_error(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            _validation_detail(error="Telemetry payload is too large", payload_type=payload_type_hint),
         )
     if request.headers.get("content-encoding", "").lower() == "gzip":
         if not ACCEPT_GZIP_TELEMETRY:
-            raise HTTPException(status_code=415, detail="Gzip telemetry is disabled")
+            raise _telemetry_http_error(
+                415,
+                _validation_detail(error="Gzip telemetry is disabled", payload_type=payload_type_hint),
+            )
         try:
             body = gzip.decompress(body)
         except OSError as exc:
@@ -353,19 +465,28 @@ async def _read_telemetry_body(request: Request) -> tuple[dict[str, Any], int]:
             try:
                 json.loads(body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                raise HTTPException(status_code=400, detail="Invalid gzip telemetry payload") from exc
+                raise _telemetry_http_error(
+                    400,
+                    _validation_detail(error="Invalid gzip telemetry payload", payload_type=payload_type_hint),
+                ) from exc
             logger.warning("telemetry payload had gzip header but body was already plain JSON")
         if len(body) > MAX_TELEMETRY_BODY_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Telemetry payload is too large",
+            raise _telemetry_http_error(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                _validation_detail(error="Telemetry payload is too large", payload_type=payload_type_hint),
             )
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail="Invalid telemetry JSON payload") from exc
+        raise _telemetry_http_error(
+            400,
+            _validation_detail(error="Invalid telemetry JSON payload", payload_type=payload_type_hint),
+        ) from exc
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="Telemetry payload must be a JSON object")
+        raise _telemetry_http_error(
+            400,
+            _validation_detail(error="Telemetry payload must be a JSON object", payload_type=payload_type_hint),
+        )
     return payload, len(body)
 
 
@@ -378,6 +499,10 @@ def _parse_collected_at(value: Any) -> datetime:
         except ValueError:
             return datetime.now(timezone.utc)
     return datetime.now(timezone.utc)
+
+
+def _payload_sent_at(payload: dict[str, Any]) -> Any:
+    return payload.get("collected_at") or payload.get("sent_at") or payload.get("timestamp")
 
 
 def _payload_network_ipv4(payload: dict[str, Any]) -> str | None:
@@ -393,6 +518,19 @@ def _payload_network_ipv4(payload: dict[str, Any]) -> str | None:
 
 
 def _payload_agent_interval(payload: dict[str, Any], payload_type: str) -> int:
+    interval_aliases = {
+        "heartbeat": ("heartbeat_interval_seconds", "interval_seconds"),
+        "posture_snapshot": ("posture_interval_seconds", "interval_seconds"),
+        "posture": ("posture_interval_seconds", "interval_seconds"),
+        "inventory_delta": ("inventory_delta_interval_seconds", "interval_seconds"),
+        "inventory_full": ("inventory_full_interval_seconds", "interval_seconds"),
+    }
+    for key in interval_aliases.get(payload_type, ("interval_seconds",)):
+        if payload.get(key):
+            try:
+                return max(1, int(payload[key]))
+            except (TypeError, ValueError):
+                pass
     agent = payload.get("agent")
     if isinstance(agent, dict) and agent.get("interval_seconds"):
         try:
@@ -410,25 +548,88 @@ def _payload_agent_interval(payload: dict[str, Any], payload_type: str) -> int:
 
 def _extract_endpoint_identity(payload: dict[str, Any]) -> tuple[str, str]:
     endpoint_id = (
-        payload.get("endpoint_id")
-        or payload.get("endpoint_ref")
+        payload.get("endpoint_ref")
+        or payload.get("endpoint_id")
         or payload.get("device_id")
         or payload.get("machine_guid")
     )
     if not endpoint_id:
-        raise HTTPException(status_code=422, detail="Telemetry payload requires endpoint_id or endpoint_ref")
+        payload_type = str(payload.get("payload_type") or "unknown")
+        raise _telemetry_http_error(
+            422,
+            _validation_detail(
+                error="Telemetry payload requires endpoint_ref",
+                payload_type=payload_type,
+                missing_fields=["endpoint_ref"],
+                example_shape=_example_shape(payload_type),
+            ),
+        )
     hostname = payload.get("hostname") or payload.get("host_name") or str(endpoint_id)
     return str(endpoint_id), str(hostname)
 
 
+def _normalize_payload_type(payload_type: str, payload: dict[str, Any]) -> str:
+    candidate = str(payload.get("payload_type") or payload_type or "legacy").strip().lower()
+    aliases = {
+        "posture": "posture_snapshot",
+        "snapshot": "posture_snapshot",
+        "full_inventory": "inventory_full",
+        "delta_inventory": "inventory_delta",
+    }
+    return aliases.get(candidate, candidate)
+
+
+def _normalize_minimal_payload_shape(payload: dict[str, Any], payload_type: str) -> dict[str, Any]:
+    normalized = dict(payload)
+    normalized["payload_type"] = payload_type
+    if "endpoint_ref" not in normalized and normalized.get("endpoint_id"):
+        normalized["endpoint_ref"] = normalized["endpoint_id"]
+    if "endpoint_id" not in normalized and normalized.get("endpoint_ref"):
+        normalized["endpoint_id"] = normalized["endpoint_ref"]
+    if "collected_at" not in normalized and normalized.get("sent_at"):
+        normalized["collected_at"] = normalized["sent_at"]
+    if "ip_address" not in normalized and normalized.get("current_ip"):
+        normalized["ip_address"] = normalized["current_ip"]
+    if "network" not in normalized or not isinstance(normalized.get("network"), dict):
+        normalized["network"] = {}
+    if not normalized["network"].get("ipv4"):
+        normalized["network"]["ipv4"] = _payload_network_ipv4(normalized)
+
+    posture = normalized.get("posture")
+    if isinstance(posture, dict):
+        system_info = posture.get("system_info")
+        if isinstance(system_info, dict) and not isinstance(normalized.get("os"), dict):
+            normalized["os"] = system_info
+        if isinstance(posture.get("antivirus"), list) and not isinstance(normalized.get("antivirus_products"), list):
+            normalized["antivirus_products"] = posture["antivirus"]
+        if isinstance(posture.get("required_services"), list) and not isinstance(normalized.get("services"), list):
+            normalized["services"] = posture["required_services"]
+        processes: list[Any] = []
+        if isinstance(posture.get("forbidden_processes_found"), list):
+            processes.extend(posture["forbidden_processes_found"])
+        if isinstance(posture.get("security_processes_found"), list):
+            processes.extend(posture["security_processes_found"])
+        if processes and not isinstance(normalized.get("processes"), list):
+            normalized["processes"] = processes
+
+    inventory = normalized.get("inventory")
+    if isinstance(inventory, dict):
+        for key in ("services", "processes", "hotfixes", "software"):
+            if key in inventory and key not in normalized:
+                normalized[key] = inventory[key]
+
+    return normalized
+
+
 def _normalize_endpoint_telemetry_payload(payload: dict[str, Any], payload_type: str) -> dict[str, Any]:
+    payload = _normalize_minimal_payload_shape(payload, payload_type)
     endpoint_id, hostname = _extract_endpoint_identity(payload)
     normalized = dict(payload)
     normalized["schema_version"] = str(normalized.get("schema_version") or "1.0")
     normalized["collector_type"] = str(normalized.get("collector_type") or normalized.get("payload_type") or payload_type)
     normalized["endpoint_id"] = endpoint_id
     normalized["hostname"] = hostname
-    normalized["collected_at"] = normalized.get("collected_at") or datetime.now(timezone.utc).isoformat()
+    normalized["collected_at"] = _payload_sent_at(normalized) or datetime.now(timezone.utc).isoformat()
     normalized["network"] = normalized.get("network") if isinstance(normalized.get("network"), dict) else {}
     normalized["network"]["ipv4"] = _payload_network_ipv4(payload)
     normalized["os"] = normalized.get("os") if isinstance(normalized.get("os"), dict) else {}
@@ -453,8 +654,9 @@ def _upsert_endpoint_liveness(
     payload_type: str,
     source_ip: str | None,
 ) -> tuple[Endpoint, bool, datetime]:
+    payload = _normalize_minimal_payload_shape(payload, payload_type)
     endpoint_id, hostname = _extract_endpoint_identity(payload)
-    collected_at = _parse_collected_at(payload.get("collected_at"))
+    collected_at = _parse_collected_at(_payload_sent_at(payload))
     endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == endpoint_id))
     created_endpoint = False
     if endpoint is None:
@@ -556,6 +758,8 @@ async def _submit_payload(
 ) -> TelemetryIngestResponse:
     started_at = time.perf_counter()
     payload, payload_size = await _read_telemetry_body(request)
+    payload_type = _normalize_payload_type(payload_type, payload)
+    payload = _normalize_minimal_payload_shape(payload, payload_type)
     source_ip = resolve_client_ip(request)
     if source_ip is not None:
         _apply_ingest_rate_limit(source_ip)
@@ -563,13 +767,14 @@ async def _submit_payload(
     reported_ipv4 = _payload_network_ipv4(payload)
     if LOG_TELEMETRY_PAYLOAD_SIZE:
         logger.info(
-            "telemetry received payload_type=%s endpoint_id=%s hostname=%s source_ip=%s reported_ipv4=%s payload_bytes=%s",
+            "telemetry received payload_type=%s endpoint_id=%s hostname=%s source_ip=%s reported_ipv4=%s payload_bytes=%s safe_keys=%s",
             payload_type,
             endpoint_id,
             hostname,
             source_ip,
             reported_ipv4,
             payload_size,
+            _safe_payload_keys(payload),
         )
 
     endpoint, created_endpoint, stored_at = _upsert_endpoint_liveness(
@@ -587,7 +792,9 @@ async def _submit_payload(
             created_endpoint,
         )
         return TelemetryIngestResponse(
+            status="accepted",
             endpoint_id=endpoint.endpoint_id,
+            endpoint_ref=endpoint.endpoint_id,
             record_id=None,
             stored_at=stored_at,
             payload_type=payload_type,
@@ -605,7 +812,9 @@ async def _submit_payload(
                 payload.get("sequence_number"),
             )
             return TelemetryIngestResponse(
+                status="resync_required",
                 endpoint_id=endpoint.endpoint_id,
+                endpoint_ref=endpoint.endpoint_id,
                 record_id=None,
                 stored_at=stored_at,
                 payload_type=payload_type,
@@ -618,7 +827,22 @@ async def _submit_payload(
     try:
         telemetry = EndpointTelemetry.model_validate(normalized_payload)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        invalid_fields = [
+            {
+                "field": ".".join(str(part) for part in error.get("loc", [])),
+                "message": error.get("msg"),
+            }
+            for error in exc.errors()
+        ]
+        raise _telemetry_http_error(
+            422,
+            _validation_detail(
+                error="Telemetry payload validation failed",
+                payload_type=payload_type,
+                invalid_fields=invalid_fields,
+                example_shape=_example_shape(payload_type),
+            ),
+        ) from exc
 
     record = _store_latest_telemetry_record(
         db=db,
@@ -686,7 +910,9 @@ async def _submit_payload(
         )
 
     return TelemetryIngestResponse(
+        status="accepted",
         endpoint_id=endpoint.endpoint_id,
+        endpoint_ref=endpoint.endpoint_id,
         record_id=record.id,
         stored_at=record.created_at,
         payload_type=payload_type,
@@ -694,7 +920,7 @@ async def _submit_payload(
     )
 
 
-@app.post("/telemetry", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/telemetry", response_model=TelemetryIngestResponse)
 async def submit_telemetry(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -709,7 +935,7 @@ async def submit_telemetry(
     )
 
 
-@app.post("/telemetry/heartbeat", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED)
+@app.post("/telemetry/heartbeat", response_model=TelemetryIngestResponse)
 async def submit_heartbeat(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -724,7 +950,7 @@ async def submit_heartbeat(
     )
 
 
-@app.post("/telemetry/posture", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/telemetry/posture", response_model=TelemetryIngestResponse)
 async def submit_posture_snapshot(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -739,7 +965,7 @@ async def submit_posture_snapshot(
     )
 
 
-@app.post("/telemetry/inventory/full", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/telemetry/inventory/full", response_model=TelemetryIngestResponse)
 async def submit_inventory_full(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -754,7 +980,7 @@ async def submit_inventory_full(
     )
 
 
-@app.post("/telemetry/inventory/delta", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED)
+@app.post("/telemetry/inventory/delta", response_model=TelemetryIngestResponse)
 async def submit_inventory_delta(
     request: Request,
     background_tasks: BackgroundTasks,

@@ -6,7 +6,9 @@ from posture_shared.models.telemetry import EndpointTelemetry
 
 
 class TelemetryIngestResponse(BaseModel):
+    status: str = "accepted"
     endpoint_id: str
+    endpoint_ref: str | None = None
     record_id: int | None = None
     stored_at: datetime
     payload_type: str = "legacy"

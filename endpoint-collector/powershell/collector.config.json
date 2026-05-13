@@ -24,6 +24,7 @@
     "bearer_token": "",
     "headers": {}
   },
+  "dry_run": false,
   "scheduling": {
     "heartbeat_interval_seconds": 3,
     "posture_interval_seconds": 3,
@@ -33,10 +34,12 @@
     "send_full_inventory_on_resync_required": true
   },
   "payload": {
-    "gzip_enabled": true,
+    "gzip_enabled": false,
     "max_payload_bytes": 10485760,
     "include_sequence_numbers": true,
-    "include_hashes": true
+    "include_hashes": true,
+    "debug_payload_dump_enabled": false,
+    "debug_payload_dump_dir": ".\\logs\\payload-dumps"
   },
   "heartbeat": {
     "enabled": true,

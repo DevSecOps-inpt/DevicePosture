@@ -129,10 +129,31 @@ class TypedTelemetryTests(unittest.TestCase):
             },
         )
 
+        self.assertEqual(body["status"], "accepted")
         self.assertEqual(body["payload_type"], "heartbeat")
+        self.assertEqual(body["endpoint_ref"], "heartbeat-pc")
         self.assertIsNone(body["record_id"])
         self.assertFalse(body["evaluation_triggered"])
         self.assertEqual(self.evaluation_calls, [])
+
+    def test_minimal_heartbeat_contract(self):
+        body = self._submit(
+            "heartbeat",
+            {
+                "payload_type": "heartbeat",
+                "endpoint_ref": "minimal-heartbeat-pc",
+                "hostname": "minimal-heartbeat-pc",
+                "ip_address": "10.10.10.15",
+                "heartbeat_interval_seconds": 3,
+                "sequence_number": 1,
+                "sent_at": "2026-05-13T12:00:00Z",
+            },
+        )
+
+        self.assertEqual(body["status"], "accepted")
+        self.assertEqual(body["payload_type"], "heartbeat")
+        self.assertEqual(body["endpoint_ref"], "minimal-heartbeat-pc")
+        self.assertFalse(body["evaluation_triggered"])
 
     def test_heartbeat_accepts_gzip_body(self):
         body = self._submit(
@@ -173,12 +194,59 @@ class TypedTelemetryTests(unittest.TestCase):
         self.assertTrue(body["evaluation_triggered"])
         self.assertEqual(self.evaluation_calls, ["posture-pc"])
 
+    def test_minimal_posture_contract_triggers_evaluation(self):
+        body = self._submit(
+            "posture_snapshot",
+            {
+                "payload_type": "posture",
+                "endpoint_ref": "minimal-posture-pc",
+                "hostname": "minimal-posture-pc",
+                "ip_address": "10.10.10.16",
+                "posture_interval_seconds": 3,
+                "sequence_number": 1,
+                "sent_at": "2026-05-13T12:00:00Z",
+                "posture": {
+                    "system_info": {"name": "Windows", "version": "11", "build": "22631"},
+                    "antivirus": [{"name": "Microsoft Defender", "antivirus_enabled": True}],
+                    "required_services": [{"name": "WinDefend", "status": "Running"}],
+                    "forbidden_processes_found": [],
+                    "security_processes_found": [{"name": "MsMpEng"}],
+                },
+            },
+        )
+
+        self.assertEqual(body["status"], "accepted")
+        self.assertEqual(body["payload_type"], "posture_snapshot")
+        self.assertTrue(body["evaluation_triggered"])
+        self.assertEqual(self.evaluation_calls, ["minimal-posture-pc"])
+
     def test_inventory_full_does_not_trigger_evaluation_by_default(self):
         payload = self._payload("inventory-full-pc")
         payload.update({"baseline_id": "base-1", "sequence_number": 0, "current_hash": "hash-0"})
 
         body = self._submit("inventory_full", payload)
 
+        self.assertEqual(body["payload_type"], "inventory_full")
+        self.assertFalse(body["evaluation_triggered"])
+        self.assertEqual(self.evaluation_calls, [])
+
+    def test_minimal_inventory_full_contract_does_not_trigger_evaluation(self):
+        body = self._submit(
+            "inventory_full",
+            {
+                "payload_type": "inventory_full",
+                "endpoint_ref": "minimal-inventory-full-pc",
+                "hostname": "minimal-inventory-full-pc",
+                "ip_address": "10.10.10.17",
+                "category": "all",
+                "baseline_id": "base-minimal-full",
+                "sequence_number": 1,
+                "sent_at": "2026-05-13T12:00:00Z",
+                "inventory": {"services": [], "processes": [], "hotfixes": [], "software": []},
+            },
+        )
+
+        self.assertEqual(body["status"], "accepted")
         self.assertEqual(body["payload_type"], "inventory_full")
         self.assertFalse(body["evaluation_triggered"])
         self.assertEqual(self.evaluation_calls, [])
@@ -202,6 +270,27 @@ class TypedTelemetryTests(unittest.TestCase):
 
         self.assertTrue(body["resync_required"])
         self.assertEqual(body["reason"], "sequence_gap")
+
+    def test_minimal_inventory_delta_contract_returns_resync_without_generic_400(self):
+        body = self._submit(
+            "inventory_delta",
+            {
+                "payload_type": "inventory_delta",
+                "endpoint_ref": "minimal-inventory-delta-pc",
+                "category": "services",
+                "baseline_id": "unknown-baseline",
+                "sequence_number": 2,
+                "previous_hash": "hash-1",
+                "current_hash": "hash-2",
+                "changes": {"added": [], "updated": [], "removed": []},
+                "sent_at": "2026-05-13T12:00:00Z",
+            },
+        )
+
+        self.assertEqual(body["status"], "resync_required")
+        self.assertEqual(body["payload_type"], "inventory_delta")
+        self.assertTrue(body["resync_required"])
+        self.assertFalse(body["evaluation_triggered"])
 
     def test_legacy_telemetry_still_works(self):
         body = self._submit("legacy", self._payload("legacy-pc"))
