@@ -71,6 +71,21 @@ class PaloAltoAdapterTests(unittest.TestCase):
         self.assertEqual(by_id["palo_tag_name"], "dag-quarantine")
         self.assertEqual(by_name["palo_dag_name"], "DAG-Quarantine")
 
+    def test_client_accepts_tuple_timeout_from_settings(self) -> None:
+        adapter = PaloAltoAdapter()
+        settings = adapter.build_settings(
+            {
+                "base_url": "https://fw.example.local",
+                "api_key": "secret",
+                "connect_timeout_seconds": 1.0,
+                "read_timeout_seconds": 1.5,
+            }
+        )
+
+        client = adapter._client(settings)
+
+        self.assertEqual(client.timeout, (1.0, 1.5))
+
     def test_execute_quarantine_registers_ip_tag(self) -> None:
         session = FakeSession([success_response()])
         client = PaloAltoXmlApiClient(

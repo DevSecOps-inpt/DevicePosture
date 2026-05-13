@@ -262,7 +262,7 @@ class PaloAltoAdapter(EnforcementAdapter):
             base_url=str(settings["base_url"]),
             api_key=str(settings["api_key"]),
             verify_tls=bool(settings["verify_tls"]),
-            timeout=float(settings["timeout"]),
+            timeout=settings["timeout"],
             retries=int(settings["retries"]),
         )
 
