@@ -510,12 +510,40 @@ def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
                 detail=f"{detail}. Validated {mapped_count} Palo Alto group mapping(s) in {details.get('vsys')}.",
             )
         except Exception as exc:
+            detail = _short_error_message(exc)
+            base_url = str(settings.get("base_url") or "")
+            if base_url.startswith("https://"):
+                http_settings = dict(settings)
+                http_settings["base_url"] = base_url.replace("https://", "http://", 1)
+                try:
+                    http_details = palo_alto_adapter.check_connection(http_settings)
+                    http_detail = "HTTP works for PAN-OS XML API"
+                    if http_details.get("hostname"):
+                        http_detail = f"{http_detail} ({http_details['hostname']})"
+                    if http_details.get("sw_version"):
+                        http_detail = f"{http_detail}, PAN-OS {http_details['sw_version']}"
+                    return AdapterHealthResponse(
+                        name=item.name,
+                        adapter=adapter_name,
+                        is_active=True,
+                        status="error",
+                        detail=(
+                            f"HTTPS failed, but HTTP works at {http_settings['base_url']}. "
+                            f"Use base URL '{http_settings['base_url']}'. {http_detail}."
+                        ),
+                    )
+                except Exception:
+                    if "connection reset" in detail.lower() or "connectionreseterror" in detail.lower():
+                        detail = (
+                            f"{detail}. The firewall reset the HTTPS connection; verify the PAN-OS "
+                            "management protocol/port, or try an http:// base URL if HTTPS is disabled."
+                        )
             return AdapterHealthResponse(
                 name=item.name,
                 adapter=adapter_name,
                 is_active=True,
                 status="error",
-                detail=_short_error_message(exc),
+                detail=detail,
             )
 
     return AdapterHealthResponse(
