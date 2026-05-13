@@ -23,6 +23,8 @@ export interface EndpointSummary {
   activity_status: EndpointActivityStatus;
   is_active: boolean | null;
   seconds_since_seen: number | null;
+  archived_at?: string | null;
+  archived_reason?: string | null;
 }
 
 export interface TelemetryRecordResponse {

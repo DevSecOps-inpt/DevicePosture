@@ -53,4 +53,6 @@ def build_endpoint_summary(endpoint: Endpoint) -> EndpointSummary:
         activity_status=activity_status,
         is_active=is_active,
         seconds_since_seen=seconds_since_seen,
+        archived_at=getattr(endpoint, "archived_at", None),
+        archived_reason=getattr(endpoint, "archived_reason", None),
     )

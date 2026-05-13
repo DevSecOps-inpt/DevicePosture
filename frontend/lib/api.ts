@@ -31,6 +31,16 @@ type FetchJsonOptions = {
   includeCredentials?: boolean;
 };
 
+type ApiIpGroupLike = {
+  group_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  member_count: number;
+  member_object_ids: string[];
+};
+
 function shouldUsePolicySessionCookie(input: RequestInfo | URL): boolean {
   const rawUrl = typeof input === "string" ? input : input.toString();
   return rawUrl.startsWith(POLICY_SERVICE_URL);
@@ -60,19 +70,22 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit, option
   if (!response.ok) {
     const raw = await response.text();
     if (raw) {
+      let detail: string | null = null;
       try {
         const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
-        const detail =
+        detail =
           typeof parsed.detail === "string"
             ? parsed.detail
             : typeof parsed.message === "string"
               ? parsed.message
-            : null;
-        if (detail) {
-          throw new Error(detail);
-        }
+              : parsed.detail
+                ? JSON.stringify(parsed.detail)
+                : null;
       } catch {
-        // Fall through to generic status-based message.
+        // Fall through to generic status-based message for non-JSON responses.
+      }
+      if (detail) {
+        throw new Error(detail);
       }
     }
     if (response.status >= 500) {
@@ -110,8 +123,34 @@ export const api = {
     enforcement: ENFORCEMENT_SERVICE_URL
   },
 
-  listEndpoints() {
-    return fetchJson<EndpointSummary[]>(`${TELEMETRY_API_URL}/endpoints`);
+  listEndpoints(options?: { includeArchived?: boolean }) {
+    const suffix = options?.includeArchived ? "?include_archived=true" : "";
+    return fetchJson<EndpointSummary[]>(`${TELEMETRY_API_URL}/endpoints${suffix}`);
+  },
+
+  archiveEndpoint(endpointId: string, options?: { force?: boolean; cleanup?: boolean; reason?: string }) {
+    const params = new URLSearchParams();
+    if (options?.force) params.set("force", "true");
+    if (options?.cleanup) params.set("cleanup", "true");
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return fetchJson<{ status: string; endpoint_id: string; cleanup_result?: unknown }>(
+      `${TELEMETRY_API_URL}/endpoints/${encodeURIComponent(endpointId)}/archive${suffix}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: options?.reason ?? "Archived from admin UI" })
+      }
+    );
+  },
+
+  deleteEndpoint(endpointId: string, options?: { force?: boolean; cleanup?: boolean }) {
+    const params = new URLSearchParams();
+    if (options?.force) params.set("force", "true");
+    if (options?.cleanup) params.set("cleanup", "true");
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return fetchJson<{ status: string; endpoint_id: string; cleanup_result?: unknown }>(
+      `${TELEMETRY_API_URL}/endpoints/${encodeURIComponent(endpointId)}${suffix}`,
+      { method: "DELETE" }
+    );
   },
 
   getLatestTelemetryBatch(endpointIds: string[], options?: { includeRaw?: boolean }) {
@@ -138,6 +177,7 @@ export const api = {
 
   getEndpointAssignedPolicies(endpointId: string) {
     return fetchJson<Array<{
+      assignment_id?: number | null;
       policy_id: number;
       policy_name: string;
       trigger_type: "telemetry_received" | "active_to_inactive";
@@ -212,6 +252,22 @@ export const api = {
     });
   },
 
+  deleteAssignment(policyId: number, assignmentId: number, options?: { cleanupPolicyEffects?: boolean }) {
+    const suffix = options?.cleanupPolicyEffects ? "?cleanup_policy_effects=true" : "";
+    return fetchJson<{ status: string }>(
+      `${POLICY_SERVICE_URL}/policies/${policyId}/assignments/${assignmentId}${suffix}`,
+      { method: "DELETE" }
+    );
+  },
+
+  deleteEndpointAssignment(policyId: number, endpointId: string, options?: { cleanupPolicyEffects?: boolean }) {
+    const suffix = options?.cleanupPolicyEffects ? "?cleanup_policy_effects=true" : "";
+    return fetchJson<{ status: string }>(
+      `${POLICY_SERVICE_URL}/policies/${policyId}/assignments/by-endpoint/${encodeURIComponent(endpointId)}${suffix}`,
+      { method: "DELETE" }
+    );
+  },
+
   listConditionGroups(groupType?: ConditionGroup["group_type"]) {
     const suffix = groupType ? `?group_type=${encodeURIComponent(groupType)}` : "";
     return fetchJson<ConditionGroup[]>(`${POLICY_SERVICE_URL}/condition-groups${suffix}`);
@@ -270,6 +326,7 @@ export const api = {
         {} as Record<
           string,
           Array<{
+            assignment_id?: number | null;
             policy_id: number;
             policy_name: string;
             policy_scope: "posture" | "lifecycle";
@@ -284,8 +341,9 @@ export const api = {
     endpointIds.forEach((endpointId) => params.append("endpoint_id", endpointId));
     return fetchJson<
       Record<
-        string,
-        Array<{
+          string,
+          Array<{
+          assignment_id?: number | null;
           policy_id: number;
           policy_name: string;
           policy_scope: "posture" | "lifecycle";
@@ -446,11 +504,35 @@ export const api = {
   },
 
   removeObjectFromGroup(groupName: string, objectId: string) {
-    return fetchJson<IpGroup>(
+    return fetchJson<{ status: string; operation: string; group: ApiIpGroupLike; warning?: string | null }>(
       `${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(objectId)}`,
       {
         method: "DELETE"
       }
+    );
+  },
+
+  addIpToGroup(groupIdOrName: string, payload: { ip_address: string; name?: string | null; endpoint_id?: string | null }) {
+    return fetchJson<{ status: string; operation: string; group: ApiIpGroupLike; warning?: string | null }>(
+      `${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupIdOrName)}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+
+  removeIpObjectFromGroup(groupIdOrName: string, objectId: string) {
+    return fetchJson<{ status: string; operation: string; group: ApiIpGroupLike; warning?: string | null }>(
+      `${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupIdOrName)}/members/${encodeURIComponent(objectId)}`,
+      { method: "DELETE" }
+    );
+  },
+
+  syncIpGroup(groupIdOrName: string) {
+    return fetchJson<{ status: string; warning?: string | null }>(
+      `${ENFORCEMENT_SERVICE_URL}/objects/ip-groups/${encodeURIComponent(groupIdOrName)}/sync`,
+      { method: "POST" }
     );
   },
 

@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 import ipaddress
 import logging
+import os
 import re
 import threading
 import time
@@ -62,10 +63,13 @@ from app.schemas import (
     AuditEvent,
     BackgroundJobResponse,
     IpAddressMembershipRequest,
+    EndpointCleanupRequest,
     IpGroupCreate,
     IpGroupMemberAddRequest,
     IpGroupResponse,
     IpGroupUpdate,
+    ManualGroupMemberResponse,
+    PolicyCleanupRequest,
     IpObjectCreate,
     IpObjectResponse,
     IpObjectUpdate,
@@ -111,6 +115,7 @@ executor = ThreadPoolExecutor(max_workers=max(1, BACKGROUND_WORKERS))
 logger = logging.getLogger("enforcement-service")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
+POLICY_SERVICE_URL = os.getenv("POLICY_SERVICE_URL", "http://127.0.0.1:8002")
 _circuit_breaker_lock = threading.Lock()
 _circuit_breakers: dict[str, dict[str, float | int]] = {}
 _request_rate_lock = threading.Lock()
@@ -636,6 +641,129 @@ def resolve_group_reference(
         if by_name is not None:
             return by_name
     return None
+
+
+def resolve_group_identifier(db: Session, group_identifier: str) -> IpGroupModel | None:
+    value = str(group_identifier or "").strip()
+    if not value:
+        return None
+    return resolve_group_reference(db=db, group_name=value, group_id=value)
+
+
+def build_policy_managed_warning(group: IpGroupModel) -> str | None:
+    try:
+        response = requests.get(
+            f"{POLICY_SERVICE_URL.rstrip('/')}/managed-groups/by-group/{group.group_id}",
+            headers=_inter_service_headers(),
+            timeout=(1.0, 1.5),
+        )
+        if response.ok:
+            managers = response.json()
+            if isinstance(managers, list) and managers:
+                names = [
+                    str(item.get("policy_name"))
+                    for item in managers
+                    if isinstance(item, dict) and item.get("policy_name")
+                ]
+                if names:
+                    return (
+                        f"Group is managed by policy {', '.join(names)}. "
+                        "Manual changes may be overwritten by the next evaluation."
+                    )
+    except Exception:
+        logger.debug("policy-managed warning lookup failed group_id=%s", group.group_id, exc_info=True)
+
+    # Fallback for older MVP databases that do not yet have policy_managed_groups populated.
+    if group.name.upper().startswith(("NON_COMPLIANT", "QUARANTINE", "BLOCKED")):
+        return (
+            f"Group is likely managed by policy automation. Manual changes may be overwritten "
+            f"by the next evaluation."
+        )
+    return None
+
+
+def manual_member_response(
+    *,
+    group: IpGroupModel,
+    ip_object: IpObjectModel | None,
+    operation: str,
+    warning: str | None = None,
+) -> ManualGroupMemberResponse:
+    return ManualGroupMemberResponse(
+        operation=operation,
+        group=to_ip_group_response(group),
+        ip_object=to_ip_object_response(ip_object) if ip_object is not None else None,
+        warning=warning,
+    )
+
+
+def _candidate_ip_objects_for_endpoint(
+    *,
+    db: Session,
+    endpoint_id: str,
+    ip_address: str | None = None,
+) -> list[IpObjectModel]:
+    candidates: list[IpObjectModel] = []
+    seen: set[int] = set()
+
+    def add_candidate(item: IpObjectModel | None) -> None:
+        if item is None or item.id in seen:
+            return
+        seen.add(item.id)
+        candidates.append(item)
+
+    add_candidate(db.scalar(select(IpObjectModel).where(IpObjectModel.name == f"endpoint-{endpoint_id}")))
+    if ip_address:
+        add_candidate(find_ip_host_object(db, ip_address))
+    return candidates
+
+
+def _cleanup_endpoint_from_groups(
+    *,
+    db: Session,
+    endpoint_id: str,
+    ip_address: str | None,
+    groups: list[IpGroupModel],
+    event_type: str,
+    reason: str | None = None,
+    policy_id: int | None = None,
+    policy_name: str | None = None,
+) -> dict[str, Any]:
+    candidates = _candidate_ip_objects_for_endpoint(db=db, endpoint_id=endpoint_id, ip_address=ip_address)
+    results: list[dict[str, Any]] = []
+    for group in groups:
+        removed_any = False
+        for ip_object in candidates:
+            removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+            removed_any = removed_any or removed
+            if removed:
+                results.append(
+                    {
+                        "group_id": group.group_id,
+                        "group_name": group.name,
+                        "object_id": ip_object.object_id,
+                        "ip_address": ip_object.value,
+                        "operation": "removed",
+                    }
+                )
+        if not removed_any:
+            results.append(
+                {
+                    "group_id": group.group_id,
+                    "group_name": group.name,
+                    "operation": "already_absent",
+                }
+            )
+    payload = {
+        "endpoint_id": endpoint_id,
+        "ip_address": ip_address,
+        "policy_id": policy_id,
+        "policy_name": policy_name,
+        "reason": reason,
+        "results": results,
+    }
+    store_audit_event(db, event_type, endpoint_id, payload)
+    return payload
 
 
 def action_adds_to_gate_group(
@@ -1929,23 +2057,55 @@ def delete_ip_group(
     db.commit()
 
 
-@app.post("/objects/ip-groups/{group_name}/members", response_model=IpGroupResponse)
+@app.post("/objects/ip-groups/{group_name}/members", response_model=ManualGroupMemberResponse)
 def add_group_member(
     group_name: str,
     payload: IpGroupMemberAddRequest,
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
-) -> IpGroupResponse:
-    group = find_group_by_name(db, group_name)
+) -> ManualGroupMemberResponse:
+    group = resolve_group_identifier(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
-    ip_object = find_object_by_id(db, payload.object_id)
-    if ip_object is None:
-        raise HTTPException(status_code=404, detail="IP object not found")
-    add_object_to_group(db=db, group=group, ip_object=ip_object)
+    if payload.object_id:
+        ip_object = find_object_by_id(db, payload.object_id)
+        if ip_object is None:
+            raise HTTPException(status_code=404, detail="IP object not found")
+    else:
+        assert payload.ip_address is not None
+        object_name = (
+            payload.name.strip()
+            if payload.name and payload.name.strip()
+            else f"endpoint-{payload.endpoint_id}" if payload.endpoint_id else f"ip-{payload.ip_address.replace('.', '-')}"
+        )
+        ip_object = ensure_ip_object(
+            db=db,
+            name=object_name,
+            object_type="host",
+            value=payload.ip_address,
+            description=f"Manual group member for {group.name}",
+            managed_by="manual",
+        )
+    added = add_object_to_group(db=db, group=group, ip_object=ip_object)
+    operation = "added" if added else "already_present"
+    warning = build_policy_managed_warning(group)
+    store_audit_event(
+        db,
+        "object.group_member.manual_add",
+        payload.endpoint_id,
+        {
+            "group_id": group.group_id,
+            "group_name": group.name,
+            "object_id": ip_object.object_id,
+            "ip_address": ip_object.value,
+            "operation": operation,
+            "warning": warning,
+            "source": "admin",
+        },
+    )
     db.commit()
     db.refresh(group)
-    return to_ip_group_response(group)
+    return manual_member_response(group=group, ip_object=ip_object, operation=operation, warning=warning)
 
 
 @app.post("/objects/ip-groups/{group_name}/members/ip", response_model=IpGroupResponse)
@@ -1971,59 +2131,137 @@ def add_ip_address_to_group(
     return to_ip_group_response(group)
 
 
-@app.delete("/objects/ip-groups/{group_name}/members/ip/{ip_address}", response_model=IpGroupResponse)
+@app.delete("/objects/ip-groups/{group_name}/members/ip/{ip_address}", response_model=ManualGroupMemberResponse)
 def remove_ip_address_from_group(
     group_name: str,
     ip_address: str,
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
-) -> IpGroupResponse:
-    group = find_group_by_name(db, group_name)
+) -> ManualGroupMemberResponse:
+    group = resolve_group_identifier(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
     ip_object = find_ip_host_object(db, ip_address)
+    operation = "already_absent"
     if ip_object is not None:
-        remove_object_from_group(db=db, group=group, ip_object=ip_object)
-        store_audit_event(
-            db,
-            "object.group_member.removed",
-            None,
-            {
-                "group_name": group.name,
-                "object_id": ip_object.object_id,
-                "ip_address": ip_address,
-                "source": "manual",
-            },
-        )
+        removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+        operation = "removed" if removed else "already_absent"
+    warning = build_policy_managed_warning(group)
+    store_audit_event(
+        db,
+        "object.group_member.manual_remove",
+        None,
+        {
+            "group_id": group.group_id,
+            "group_name": group.name,
+            "object_id": ip_object.object_id if ip_object else None,
+            "ip_address": ip_address,
+            "operation": operation,
+            "warning": warning,
+            "source": "admin",
+        },
+    )
     db.commit()
     db.refresh(group)
-    return to_ip_group_response(group)
+    return manual_member_response(group=group, ip_object=ip_object, operation=operation, warning=warning)
 
 
-@app.delete("/objects/ip-groups/{group_name}/members/{object_id}", response_model=IpGroupResponse)
+@app.delete("/objects/ip-groups/{group_name}/members/{object_id}", response_model=ManualGroupMemberResponse)
 def remove_group_member(
     group_name: str,
     object_id: str,
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
-) -> IpGroupResponse:
-    group = find_group_by_name(db, group_name)
+) -> ManualGroupMemberResponse:
+    group = resolve_group_identifier(db, group_name)
     if group is None:
         raise HTTPException(status_code=404, detail="IP group not found")
     ip_object = find_object_by_id(db, object_id)
     if ip_object is None:
         raise HTTPException(status_code=404, detail="IP object not found")
-    remove_object_from_group(db=db, group=group, ip_object=ip_object)
+    removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+    operation = "removed" if removed else "already_absent"
+    warning = build_policy_managed_warning(group)
     store_audit_event(
         db,
-        "object.group_member.removed",
+        "object.group_member.manual_remove",
         None,
         {
+            "group_id": group.group_id,
             "group_name": group.name,
             "object_id": ip_object.object_id,
-            "source": "manual",
+            "ip_address": ip_object.value,
+            "operation": operation,
+            "warning": warning,
+            "source": "admin",
         },
     )
     db.commit()
     db.refresh(group)
-    return to_ip_group_response(group)
+    return manual_member_response(group=group, ip_object=ip_object, operation=operation, warning=warning)
+
+
+@app.post("/objects/ip-groups/{group_id}/sync", response_model=dict)
+def sync_ip_group(
+    group_id: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    group = resolve_group_identifier(db, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="IP group not found")
+    payload = {
+        "group_id": group.group_id,
+        "group_name": group.name,
+        "operation": "sync_requested",
+        "message": "Manual sync is audited. Use policy adapter actions for firewall reconciliation in the MVP.",
+    }
+    store_audit_event(db, "object.group.manual_sync", None, payload)
+    db.commit()
+    return {"status": "accepted", **payload, "warning": build_policy_managed_warning(group)}
+
+
+@app.post("/objects/policy-cleanup", response_model=dict)
+def cleanup_policy_effects(
+    payload: PolicyCleanupRequest,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    groups: list[IpGroupModel] = []
+    seen: set[int] = set()
+    for group_ref in payload.groups:
+        group = resolve_group_reference(db=db, group_name=group_ref.group_name, group_id=group_ref.group_id)
+        if group is not None and group.id not in seen:
+            seen.add(group.id)
+            groups.append(group)
+    result = _cleanup_endpoint_from_groups(
+        db=db,
+        endpoint_id=payload.endpoint_id,
+        ip_address=payload.ip_address,
+        groups=groups,
+        event_type="policy.assignment.cleanup",
+        reason=payload.reason,
+        policy_id=payload.policy_id,
+        policy_name=payload.policy_name,
+    )
+    db.commit()
+    return {"status": "success", **result}
+
+
+@app.post("/objects/endpoint-cleanup", response_model=dict)
+def cleanup_endpoint_from_all_groups(
+    payload: EndpointCleanupRequest,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    groups = db.scalars(select(IpGroupModel).order_by(IpGroupModel.name)).all()
+    result = _cleanup_endpoint_from_groups(
+        db=db,
+        endpoint_id=payload.endpoint_id,
+        ip_address=payload.ip_address,
+        groups=list(groups),
+        event_type="endpoint.cleanup.group_memberships",
+        reason=payload.reason,
+    )
+    db.commit()
+    return {"status": "success", **result}

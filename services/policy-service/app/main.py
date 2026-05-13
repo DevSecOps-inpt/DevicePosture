@@ -86,6 +86,9 @@ logger = logging.getLogger("policy-service")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 AUTH_RATE_LIMIT_PER_MINUTE = int(os.getenv("AUTH_RATE_LIMIT_PER_MINUTE", "60"))
+ENFORCEMENT_SERVICE_URL = os.getenv("ENFORCEMENT_SERVICE_URL", "http://127.0.0.1:8004")
+ENFORCEMENT_HTTP_TIMEOUT_SECONDS = float(os.getenv("ENFORCEMENT_HTTP_TIMEOUT_SECONDS", "8"))
+INTER_SERVICE_API_KEY = os.getenv("POSTURE_API_KEY", "").strip()
 _auth_rate_lock = threading.Lock()
 _auth_rate_state: dict[str, list[float]] = {}
 
@@ -2537,6 +2540,106 @@ def delete_policy(
     db.commit()
 
 
+def _policy_managed_groups_for_cleanup(policy: Policy) -> list[dict[str, str | None]]:
+    refs: list[dict[str, str | None]] = []
+    seen: set[tuple[str | None, str | None]] = set()
+
+    def add_ref(group_id: Any = None, group_name: Any = None) -> None:
+        normalized_id = str(group_id).strip() if group_id is not None and str(group_id).strip() else None
+        normalized_name = str(group_name).strip() if group_name is not None and str(group_name).strip() else None
+        if not normalized_id and not normalized_name:
+            return
+        key = (normalized_id, normalized_name)
+        if key in seen:
+            return
+        seen.add(key)
+        refs.append({"group_id": normalized_id, "group_name": normalized_name})
+
+    for managed_group in getattr(policy, "managed_groups", []) or []:
+        add_ref(getattr(managed_group, "group_id", None), getattr(managed_group, "group_name", None))
+
+    execution = policy.execution or {}
+    if isinstance(execution, dict):
+        add_ref(None, execution.get("object_group"))
+        raw_managed = execution.get("managed_groups")
+        if isinstance(raw_managed, list):
+            for item in raw_managed:
+                if isinstance(item, dict):
+                    add_ref(item.get("group_id"), item.get("group_name") or item.get("name"))
+        for action_list_name in ("on_compliant", "on_non_compliant", "on_event"):
+            raw_actions = execution.get(action_list_name)
+            if not isinstance(raw_actions, list):
+                continue
+            for action in raw_actions:
+                if not isinstance(action, dict):
+                    continue
+                parameters = action.get("parameters")
+                if isinstance(parameters, dict):
+                    add_ref(parameters.get("group_id"), parameters.get("group_name"))
+    return refs
+
+
+def _call_enforcement_policy_cleanup(policy: Policy, endpoint_id: str) -> dict | None:
+    groups = _policy_managed_groups_for_cleanup(policy)
+    if not groups:
+        return {"status": "skipped", "reason": "policy has no managed groups"}
+    body = json.dumps(
+        {
+            "endpoint_id": endpoint_id,
+            "policy_id": policy.id,
+            "policy_name": policy.name,
+            "groups": groups,
+            "reason": "policy assignment removed",
+        }
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if INTER_SERVICE_API_KEY:
+        headers["X-API-Key"] = INTER_SERVICE_API_KEY
+    request = Request(
+        url=f"{ENFORCEMENT_SERVICE_URL.rstrip('/')}/objects/policy-cleanup",
+        method="POST",
+        data=body,
+        headers=headers,
+    )
+    try:
+        with urlopen(request, timeout=ENFORCEMENT_HTTP_TIMEOUT_SECONDS) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw else {"status": "success"}
+    except Exception as exc:  # pragma: no cover - best-effort cleanup must not block unassignment
+        logger.warning(
+            "policy cleanup failed policy_id=%s endpoint_id=%s error=%s",
+            policy.id,
+            endpoint_id,
+            exc,
+        )
+        return {"status": "failed", "error": str(exc)}
+
+
+def _delete_assignment(
+    *,
+    db: Session,
+    policy: Policy,
+    assignment: PolicyAssignmentModel,
+    cleanup_policy_effects: bool,
+) -> dict:
+    cleanup_result = None
+    if cleanup_policy_effects and assignment.assignment_type == "endpoint":
+        cleanup_result = _call_enforcement_policy_cleanup(policy, assignment.assignment_value)
+    payload = {
+        "policy_id": policy.id,
+        "policy_name": policy.name,
+        "assignment_id": assignment.id,
+        "assignment_type": assignment.assignment_type,
+        "assignment_value": assignment.assignment_value,
+        "cleanup_policy_effects": cleanup_policy_effects,
+        "cleanup_result": cleanup_result,
+    }
+    db.delete(assignment)
+    db.commit()
+    logger.info("policy.assignment.unassigned %s", payload)
+    return payload
+
+
 @app.post("/policies/{policy_id}/assignments", response_model=AssignmentResponse, status_code=status.HTTP_201_CREATED)
 def create_assignment(
     policy_id: int,
@@ -2595,6 +2698,99 @@ def list_assignments(
     return [AssignmentResponse.model_validate(item) for item in deduped]
 
 
+@app.delete("/policies/{policy_id}/assignments/{assignment_id}", response_model=dict)
+def delete_assignment(
+    policy_id: int,
+    assignment_id: int,
+    cleanup_policy_effects: bool = Query(default=False),
+    _: UserAccountModel = Depends(require_admin_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    policy = db.get(Policy, policy_id)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    assignment = db.scalar(
+        select(PolicyAssignmentModel).where(
+            PolicyAssignmentModel.id == assignment_id,
+            PolicyAssignmentModel.policy_id == policy_id,
+        )
+    )
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Policy assignment not found")
+    payload = _delete_assignment(
+        db=db,
+        policy=policy,
+        assignment=assignment,
+        cleanup_policy_effects=cleanup_policy_effects,
+    )
+    return {"status": "removed", **payload}
+
+
+@app.delete("/policies/{policy_id}/assignments/by-endpoint/{endpoint_id}", response_model=dict)
+def delete_endpoint_assignment(
+    policy_id: int,
+    endpoint_id: str,
+    cleanup_policy_effects: bool = Query(default=False),
+    _: UserAccountModel = Depends(require_admin_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    policy = db.get(Policy, policy_id)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    assignment = db.scalar(
+        select(PolicyAssignmentModel)
+        .where(
+            PolicyAssignmentModel.policy_id == policy_id,
+            PolicyAssignmentModel.assignment_type == "endpoint",
+            PolicyAssignmentModel.assignment_value == endpoint_id,
+        )
+        .order_by(PolicyAssignmentModel.id.desc())
+    )
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Policy assignment not found")
+    payload = _delete_assignment(
+        db=db,
+        policy=policy,
+        assignment=assignment,
+        cleanup_policy_effects=cleanup_policy_effects,
+    )
+    return {"status": "removed", **payload}
+
+
+@app.get("/managed-groups/by-group/{group_ref}", response_model=list[dict])
+def list_policy_managers_for_group(
+    group_ref: str,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    value = group_ref.strip()
+    if not value:
+        return []
+    rows = db.scalars(
+        select(PolicyManagedGroupModel)
+        .where(
+            (PolicyManagedGroupModel.group_id == value)
+            | (PolicyManagedGroupModel.group_name == value)
+        )
+        .order_by(PolicyManagedGroupModel.trigger_type, PolicyManagedGroupModel.policy_id)
+    ).all()
+    response: list[dict] = []
+    for row in rows:
+        policy = db.get(Policy, row.policy_id)
+        if policy is None:
+            continue
+        response.append(
+            {
+                "policy_id": policy.id,
+                "policy_name": policy.name,
+                "trigger_type": row.trigger_type,
+                "group_id": row.group_id,
+                "group_name": row.group_name,
+            }
+        )
+    return response
+
+
 @app.get("/endpoints/{endpoint_id}/assigned-policies", response_model=list[EndpointAssignedPolicyResponse])
 def list_endpoint_assigned_policies(
     endpoint_id: str,
@@ -2621,6 +2817,7 @@ def list_endpoint_assigned_policies(
         seen.add(key)
         responses.append(
             EndpointAssignedPolicyResponse(
+                assignment_id=assignment.id,
                 policy_id=policy.id,
                 policy_name=policy.name,
                 trigger_type=policy_trigger_type(policy),
@@ -2666,6 +2863,7 @@ def list_endpoint_assigned_policies_batch(
         endpoint_seen.add(dedupe_key)
         response.setdefault(assignment.assignment_value, []).append(
             EndpointAssignedPolicyResponse(
+                assignment_id=assignment.id,
                 policy_id=policy.id,
                 policy_name=policy.name,
                 trigger_type=policy_trigger_type(policy),

@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast-provider";
 import { formatDateTime } from "@/lib/utils";
-import type { ConditionGroup, IpObjectType } from "@/types/platform";
+import type { ConditionGroup, IpObjectType, Policy } from "@/types/platform";
 
 type ApiIpObject = {
   object_id: string;
@@ -59,6 +59,11 @@ export function ObjectsPage() {
   const [ipObjects, setIpObjects] = useState<ApiIpObject[]>([]);
   const [ipGroups, setIpGroups] = useState<ApiIpGroup[]>([]);
   const [conditionGroups, setConditionGroups] = useState<ConditionGroup[]>([]);
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [manualIpAddress, setManualIpAddress] = useState("");
+  const [manualObjectName, setManualObjectName] = useState("");
+  const [memberActionBusy, setMemberActionBusy] = useState(false);
 
   const [ipModalOpen, setIpModalOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
@@ -94,14 +99,17 @@ export function ObjectsPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [objects, groups, conditionGroupsResponse] = await Promise.all([
+      const [objects, groups, conditionGroupsResponse, policiesResponse] = await Promise.all([
         api.listIpObjects(),
         api.listIpGroups(),
         api.listConditionGroups().catch(() => []),
+        api.listPolicies().catch(() => []),
       ]);
       setIpObjects(objects);
       setIpGroups(groups);
       setConditionGroups(conditionGroupsResponse);
+      setPolicies(policiesResponse);
+      setSelectedGroupId((current) => current ?? groups[0]?.group_id ?? null);
     } catch (error) {
       pushToast({
         tone: "error",
@@ -170,6 +178,50 @@ export function ObjectsPage() {
       );
     });
   }, [conditionGroups, search]);
+
+  const selectedGroup = useMemo(
+    () => ipGroups.find((group) => group.group_id === selectedGroupId) ?? null,
+    [ipGroups, selectedGroupId]
+  );
+
+  const selectedGroupMembers = useMemo(() => {
+    if (!selectedGroup) {
+      return [] as ApiIpObject[];
+    }
+    const ids = new Set(selectedGroup.member_object_ids);
+    return ipObjects.filter((item) => ids.has(item.object_id));
+  }, [ipObjects, selectedGroup]);
+
+  function policiesManagingGroup(group: ApiIpGroup | null): string[] {
+    if (!group) {
+      return [];
+    }
+    const matches = new Set<string>();
+    for (const policy of policies) {
+      const execution = policy.execution;
+      if (!execution) {
+        continue;
+      }
+      const managedGroups = execution.managed_groups ?? policy.managed_groups ?? [];
+      if (execution.object_group === group.name) {
+        matches.add(policy.name);
+      }
+      for (const item of managedGroups) {
+        if (item.group_id === group.group_id || item.group_name === group.name) {
+          matches.add(policy.name);
+        }
+      }
+      for (const actionList of [execution.on_compliant, execution.on_non_compliant, execution.on_event]) {
+        for (const action of actionList ?? []) {
+          const params = action.parameters ?? {};
+          if (params.group_id === group.group_id || params.group_name === group.name) {
+            matches.add(policy.name);
+          }
+        }
+      }
+    }
+    return Array.from(matches);
+  }
 
   function resetIpDraft() {
     setIpDraft({ name: "", description: "", type: "host", value: "" });
@@ -376,6 +428,83 @@ export function ObjectsPage() {
         title: "Failed to delete group",
         description: error instanceof Error ? error.message : "Unknown error",
       });
+    }
+  }
+
+  async function addManualMember() {
+    if (!selectedGroup || !manualIpAddress.trim()) {
+      pushToast({ tone: "error", title: "Select a group and enter an IP address" });
+      return;
+    }
+    setMemberActionBusy(true);
+    try {
+      const result = await api.addIpToGroup(selectedGroup.group_id, {
+        ip_address: manualIpAddress.trim(),
+        name: manualObjectName.trim() || null,
+      });
+      pushToast({
+        tone: result.warning ? "info" : "success",
+        title: result.operation === "already_present" ? "Member already present" : "Member added",
+        description: result.warning ?? undefined,
+      });
+      setManualIpAddress("");
+      setManualObjectName("");
+      await loadData();
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to add group member",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setMemberActionBusy(false);
+    }
+  }
+
+  async function removeManualMember(member: ApiIpObject) {
+    if (!selectedGroup || !window.confirm(`Remove ${member.value} from ${selectedGroup.name}?`)) {
+      return;
+    }
+    setMemberActionBusy(true);
+    try {
+      const result = await api.removeIpObjectFromGroup(selectedGroup.group_id, member.object_id);
+      pushToast({
+        tone: result.warning ? "info" : "success",
+        title: result.operation === "already_absent" ? "Member already absent" : "Member removed",
+        description: result.warning ?? undefined,
+      });
+      await loadData();
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to remove group member",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setMemberActionBusy(false);
+    }
+  }
+
+  async function syncSelectedGroup() {
+    if (!selectedGroup) {
+      return;
+    }
+    setMemberActionBusy(true);
+    try {
+      const result = await api.syncIpGroup(selectedGroup.group_id);
+      pushToast({
+        tone: result.warning ? "info" : "success",
+        title: "Group sync recorded",
+        description: result.warning ?? "Manual sync request was audited.",
+      });
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to sync group",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setMemberActionBusy(false);
     }
   }
 
@@ -587,6 +716,7 @@ export function ObjectsPage() {
               <DataTable
                 data={filteredIpGroups}
                 getRowKey={(item) => item.group_id}
+                onRowClick={(item) => setSelectedGroupId(item.group_id)}
                 columns={[
                   {
                     id: "name",
@@ -643,6 +773,71 @@ export function ObjectsPage() {
               />
             )}
           </CardBody>
+          {selectedGroup ? (
+            <div className="border-t border-border p-5">
+              <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
+                <div className="rounded-2xl border border-border bg-slate-950/35 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Selected group</p>
+                      <h3 className="mt-2 text-lg font-semibold text-white">{selectedGroup.name}</h3>
+                      <p className="mt-1 text-sm text-slate-400">{selectedGroup.description ?? "No description"}</p>
+                    </div>
+                    <Button variant="secondary" onClick={() => void syncSelectedGroup()} disabled={memberActionBusy}>
+                      Sync group
+                    </Button>
+                  </div>
+                  {policiesManagingGroup(selectedGroup).length > 0 ? (
+                    <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                      Managed by policy: {policiesManagingGroup(selectedGroup).join(", ")}. Manual changes may be overwritten by the next evaluation.
+                    </div>
+                  ) : null}
+                  <div className="mt-4 grid gap-3">
+                    <input
+                      value={manualIpAddress}
+                      onChange={(event) => setManualIpAddress(event.target.value)}
+                      placeholder="IP address to add"
+                      className="rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
+                    />
+                    <input
+                      value={manualObjectName}
+                      onChange={(event) => setManualObjectName(event.target.value)}
+                      placeholder="Optional object name"
+                      className="rounded-xl border border-border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"
+                    />
+                    <Button onClick={() => void addManualMember()} disabled={memberActionBusy || !manualIpAddress.trim()}>
+                      Add member
+                    </Button>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-border bg-slate-950/35 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Members</p>
+                  {selectedGroupMembers.length === 0 ? (
+                    <p className="mt-3 text-sm text-slate-400">No members in this group.</p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {selectedGroupMembers.map((member) => (
+                        <div key={member.object_id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-slate-900/60 px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium text-white">{member.name}</p>
+                            <p className="text-xs text-slate-400">{member.value}</p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            className="text-rose-300 hover:text-rose-200"
+                            onClick={() => void removeManualMember(member)}
+                            disabled={memberActionBusy}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </Card>
       ) : (
         <Card>

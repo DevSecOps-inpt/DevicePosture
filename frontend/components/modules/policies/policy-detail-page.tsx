@@ -170,6 +170,36 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
     });
   };
 
+  const removeAssignment = async (assignment: PolicyAssignment) => {
+    if (!policy || assignment.id == null) {
+      pushToast({ tone: "error", title: "Cannot remove this assignment", description: "Assignment id is missing." });
+      return;
+    }
+    const cleanup =
+      assignment.assignment_type === "endpoint" &&
+      window.confirm(
+        `Remove assignment for ${assignment.assignment_value}?\n\nPress OK to also clean this policy's group effects from the endpoint. Press Cancel to only remove the assignment.`
+      );
+    if (!window.confirm("Confirm assignment removal?")) {
+      return;
+    }
+    try {
+      await api.deleteAssignment(policy.id, assignment.id, { cleanupPolicyEffects: Boolean(cleanup) });
+      pushToast({
+        tone: "success",
+        title: "Assignment removed",
+        description: cleanup ? "Policy group cleanup was requested." : undefined
+      });
+      setAssignments(dedupeAssignments(await api.listAssignments(policy.id)));
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to remove assignment",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  };
+
   const savePolicy = async (options?: { reevaluate?: boolean }) => {
     if (!policy) return;
     const validationError = validatePolicyEditorState(formState);
@@ -484,6 +514,20 @@ export function PolicyDetailPage({ policyId }: { policyId: string }) {
                     : assignment.assignment_value;
                 },
                 sortAccessor: (assignment) => assignment.assignment_value
+              },
+              {
+                id: "actions",
+                header: "Actions",
+                cell: (assignment) => (
+                  <Button
+                    variant="ghost"
+                    className="px-3 py-1.5 text-rose-300 hover:text-rose-200"
+                    onClick={() => void removeAssignment(assignment)}
+                    disabled={assignment.id == null}
+                  >
+                    Remove
+                  </Button>
+                )
               }
             ]}
           />

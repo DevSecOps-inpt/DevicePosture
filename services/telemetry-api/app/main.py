@@ -130,6 +130,12 @@ def ensure_endpoint_runtime_columns() -> None:
         statements.append("ALTER TABLE endpoints ADD COLUMN inventory_sequence_number INTEGER")
     if "inventory_current_hash" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN inventory_current_hash VARCHAR(128)")
+    if "archived_at" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN archived_at DATETIME")
+    if "archived_reason" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN archived_reason VARCHAR(500)")
+    if "archived_by" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN archived_by VARCHAR(128)")
 
     if statements:
         with engine.begin() as connection:
@@ -343,6 +349,24 @@ def _inter_service_headers() -> dict[str, str]:
     if INTER_SERVICE_API_KEY:
         headers["X-API-Key"] = INTER_SERVICE_API_KEY
     return headers
+
+
+def _request_endpoint_cleanup(endpoint: Endpoint, reason: str) -> dict[str, Any]:
+    payload = {
+        "endpoint_id": endpoint.endpoint_id,
+        "ip_address": endpoint.last_ipv4,
+        "reason": reason,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    url = f"{os.getenv('ENFORCEMENT_SERVICE_URL', 'http://127.0.0.1:8004').rstrip('/')}/objects/endpoint-cleanup"
+    request = UrlRequest(url=url, method="POST", data=body, headers=_inter_service_headers())
+    try:
+        with urlopen(request, timeout=float(os.getenv("ENFORCEMENT_HTTP_TIMEOUT_SECONDS", "8"))) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw else {"status": "success"}
+    except Exception as exc:  # pragma: no cover - best-effort cleanup must not block endpoint admin action
+        logger.warning("endpoint cleanup failed endpoint_id=%s error=%s", endpoint.endpoint_id, exc)
+        return {"status": "failed", "error": str(exc)}
 
 
 def trigger_posture_evaluation(endpoint_id: str) -> None:
@@ -675,6 +699,9 @@ def _upsert_endpoint_liveness(
     endpoint.expected_interval_seconds = _payload_agent_interval(payload, payload_type)
     endpoint.activity_grace_multiplier = ACTIVITY_GRACE_MULTIPLIER
     endpoint.last_activity_status = "active"
+    endpoint.archived_at = None
+    endpoint.archived_reason = None
+    endpoint.archived_by = None
     db.commit()
     db.refresh(endpoint)
     return endpoint, created_endpoint, now
@@ -999,14 +1026,96 @@ async def submit_inventory_delta(
 def list_endpoints(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0, le=100000),
+    include_archived: bool = Query(default=False),
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[EndpointSummary]:
     reconcile_inactive_transitions(db=db, logger=logger)
-    endpoints = db.scalars(select(Endpoint).order_by(desc(Endpoint.last_seen)).offset(offset).limit(limit)).all()
+    query = select(Endpoint)
+    if not include_archived:
+        query = query.where(Endpoint.archived_at.is_(None))
+    endpoints = db.scalars(query.order_by(desc(Endpoint.last_seen)).offset(offset).limit(limit)).all()
     summaries = [build_endpoint_summary(item) for item in endpoints]
     logger.info("listed %s endpoints", len(summaries))
     return summaries
+
+
+@app.post("/endpoints/{endpoint_id}/archive", response_model=dict)
+async def archive_endpoint(
+    endpoint_id: str,
+    request: Request,
+    force: bool = Query(default=False),
+    cleanup: bool = Query(default=False),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == endpoint_id))
+    if endpoint is None:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+    summary = build_endpoint_summary(endpoint)
+    if summary.is_active and not force:
+        raise HTTPException(status_code=409, detail="Endpoint is active. Use force=true to archive it.")
+    body: dict[str, Any] = {}
+    try:
+        if request.headers.get("content-type", "").lower().startswith("application/json"):
+            body = await request.json()
+    except Exception:
+        body = {}
+    reason = str(body.get("reason") or "Admin archived endpoint").strip()
+    cleanup_result = _request_endpoint_cleanup(endpoint, "endpoint archived") if cleanup else None
+    endpoint.archived_at = datetime.now(timezone.utc)
+    endpoint.archived_reason = reason
+    endpoint.archived_by = "admin"
+    endpoint.last_activity_status = "archived"
+    db.add(
+        EndpointLifecycleEvent(
+            endpoint_ref=endpoint.id,
+            endpoint_id=endpoint.endpoint_id,
+            event_type="endpoint.archived",
+            previous_status=summary.activity_status,
+            current_status="archived",
+            execution_state="completed",
+            details={
+                "reason": reason,
+                "force": force,
+                "cleanup": cleanup,
+                "cleanup_result": cleanup_result,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "status": "archived",
+        "endpoint_id": endpoint.endpoint_id,
+        "cleanup_result": cleanup_result,
+    }
+
+
+@app.delete("/endpoints/{endpoint_id}", response_model=dict)
+def delete_endpoint(
+    endpoint_id: str,
+    force: bool = Query(default=False),
+    cleanup: bool = Query(default=False),
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == endpoint_id))
+    if endpoint is None:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+    summary = build_endpoint_summary(endpoint)
+    if summary.is_active and not force:
+        raise HTTPException(status_code=409, detail="Endpoint is active. Use force=true to delete it.")
+    cleanup_result = _request_endpoint_cleanup(endpoint, "endpoint deleted") if cleanup else None
+    logger.info(
+        "endpoint.permanent_delete endpoint_id=%s force=%s cleanup=%s cleanup_result=%s",
+        endpoint.endpoint_id,
+        force,
+        cleanup,
+        cleanup_result,
+    )
+    db.delete(endpoint)
+    db.commit()
+    return {"status": "deleted", "endpoint_id": endpoint_id, "cleanup_result": cleanup_result}
 
 
 @app.get("/endpoints/{endpoint_id}/latest", response_model=TelemetryRecordResponse)

@@ -27,6 +27,9 @@ class Endpoint(Base):
     inventory_baseline_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     inventory_sequence_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     inventory_current_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    archived_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     telemetry_records: Mapped[list["TelemetryRecord"]] = relationship(
         back_populates="endpoint",

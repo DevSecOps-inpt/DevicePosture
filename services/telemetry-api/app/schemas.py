@@ -29,6 +29,8 @@ class EndpointSummary(BaseModel):
     activity_status: str = "unknown"
     is_active: bool | None = None
     seconds_since_seen: float | None = None
+    archived_at: datetime | None = None
+    archived_reason: str | None = None
 
 
 class TelemetryRecordResponse(BaseModel):

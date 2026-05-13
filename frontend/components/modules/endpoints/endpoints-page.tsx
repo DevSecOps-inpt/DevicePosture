@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCcw, ShieldAlert } from "lucide-react";
+import { RefreshCcw, ShieldAlert, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSmartPolling } from "@/hooks/use-smart-polling";
 import { buildEndpointView } from "@/lib/platform-data";
@@ -157,6 +157,59 @@ export function EndpointsPage() {
     await loadData();
   }
 
+  async function removeEndpoint(endpoint: EndpointView) {
+    const archive = window.confirm(
+      `Remove endpoint "${endpoint.hostname}"?\n\nPress OK to archive it. Press Cancel to permanently delete it.`
+    );
+    const cleanup = window.confirm("Clean this endpoint from local IP groups?");
+    const force = endpoint.activityStatus === "active" ? window.confirm("Endpoint is active. Force this action?") : false;
+    if (endpoint.activityStatus === "active" && !force) {
+      pushToast({ tone: "info", title: "Endpoint removal cancelled", description: "Active endpoints require force." });
+      return;
+    }
+    try {
+      if (archive) {
+        await api.archiveEndpoint(endpoint.endpointId, { force, cleanup, reason: "Removed from endpoint table" });
+        pushToast({ tone: "success", title: "Endpoint archived" });
+      } else {
+        await api.deleteEndpoint(endpoint.endpointId, { force, cleanup });
+        pushToast({ tone: "success", title: "Endpoint deleted" });
+      }
+      setSelected((current) => current.filter((id) => id !== endpoint.endpointId));
+      await loadData();
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to remove endpoint",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
+  async function removeSelectedInactive() {
+    const targets = filtered.filter((endpoint) => selected.includes(endpoint.endpointId) && endpoint.activityStatus === "inactive");
+    if (targets.length === 0) {
+      pushToast({ tone: "info", title: "No selected inactive endpoints" });
+      return;
+    }
+    const cleanup = window.confirm(`Archive ${targets.length} inactive endpoint(s) and clean group memberships?`);
+    if (!window.confirm(`Confirm archive of ${targets.length} inactive endpoint(s)?`)) {
+      return;
+    }
+    let success = 0;
+    for (const endpoint of targets) {
+      try {
+        await api.archiveEndpoint(endpoint.endpointId, { cleanup, reason: "Bulk inactive endpoint removal" });
+        success += 1;
+      } catch (_error) {
+        // Continue archiving the rest; the toast below gives the aggregate result.
+      }
+    }
+    pushToast({ tone: success === targets.length ? "success" : "info", title: `Archived ${success} of ${targets.length} inactive endpoint(s)` });
+    setSelected([]);
+    await loadData();
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -168,6 +221,10 @@ export function EndpointsPage() {
             <Button variant="secondary" onClick={evaluateSelection} disabled={loading || selected.length === 0}>
               <ShieldAlert className="mr-2 h-4 w-4" />
               Evaluate selected
+            </Button>
+            <Button variant="danger" onClick={() => void removeSelectedInactive()} disabled={loading || selected.length === 0}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remove inactive selected
             </Button>
             <Button onClick={() => void loadData()} disabled={loading}>
               <RefreshCcw className="mr-2 h-4 w-4" />
@@ -300,6 +357,22 @@ export function EndpointsPage() {
                       : endpoint.policyName ?? "Unassigned",
                   sortAccessor: (endpoint) =>
                     endpoint.assignedPolicies.map((item) => item.name).join(",") || endpoint.policyName || ""
+                },
+                {
+                  id: "actions",
+                  header: "Actions",
+                  cell: (endpoint) => (
+                    <Button
+                      variant="ghost"
+                      className="px-2 py-1.5 text-rose-300 hover:text-rose-200"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void removeEndpoint(endpoint);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  )
                 }
               ]}
             />

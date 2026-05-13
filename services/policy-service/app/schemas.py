@@ -121,6 +121,7 @@ class ConditionGroupResponse(BaseModel):
 
 
 class EndpointAssignedPolicyResponse(BaseModel):
+    assignment_id: int | None = None
     policy_id: int
     policy_name: str
     trigger_type: PolicyTriggerType = "telemetry_received"

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, RefreshCcw, ShieldOff, ShieldPlus } from "lucide-react";
+import { ArrowLeft, RefreshCcw, ShieldOff, ShieldPlus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSmartPolling } from "@/hooks/use-smart-polling";
 import { buildEndpointView } from "@/lib/platform-data";
@@ -25,15 +25,15 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryRecordResponse[]>([]);
   const [decisionHistory, setDecisionHistory] = useState<ComplianceDecision[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
-  const [assignedPolicies, setAssignedPolicies] = useState<Array<{ id: number; name: string }>>([]);
+  const [assignedPolicies, setAssignedPolicies] = useState<Array<{ id: number; name: string; assignmentId?: number | null }>>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
   const [assignmentPolicyId, setAssignmentPolicyId] = useState<number | null>(null);
 
-  const dedupeAssignedPolicies = (items: Array<{ policy_id: number; policy_name: string }>) =>
+  const dedupeAssignedPolicies = (items: Array<{ assignment_id?: number | null; policy_id: number; policy_name: string }>) =>
     items
-      .map((item) => ({ id: item.policy_id, name: item.policy_name }))
+      .map((item) => ({ id: item.policy_id, name: item.policy_name, assignmentId: item.assignment_id ?? null }))
       .filter(
         (item, index, array) =>
           array.findIndex((candidate) => candidate.id === item.id && candidate.name === item.name) === index
@@ -158,6 +158,61 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
     };
   }, [latestPayload]);
 
+  async function unassignPolicy(policyId: number, policyName: string) {
+    const cleanup = window.confirm(
+      `Unassign "${policyName}" from this endpoint?\n\nPress OK to also clean this policy's group effects from the endpoint. Press Cancel to only remove the assignment.`
+    );
+    if (!window.confirm(`Confirm unassign "${policyName}"?`)) {
+      return;
+    }
+    try {
+      await api.deleteEndpointAssignment(policyId, endpointId, { cleanupPolicyEffects: cleanup });
+      pushToast({
+        tone: "success",
+        title: "Policy unassigned",
+        description: cleanup ? "Policy group cleanup was requested." : undefined
+      });
+      await loadData();
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to unassign policy",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
+  async function removeEndpoint() {
+    if (!endpoint) {
+      return;
+    }
+    const archive = window.confirm(
+      `Remove endpoint "${endpoint.hostname}"?\n\nPress OK to archive it. Press Cancel to permanently delete it.`
+    );
+    const cleanup = window.confirm("Clean this endpoint from local IP groups?");
+    const force = endpoint.activityStatus === "active" ? window.confirm("Endpoint is active. Force this action?") : false;
+    if (endpoint.activityStatus === "active" && !force) {
+      pushToast({ tone: "info", title: "Endpoint removal cancelled", description: "Active endpoints require force." });
+      return;
+    }
+    try {
+      if (archive) {
+        await api.archiveEndpoint(endpoint.endpointId, { force, cleanup, reason: "Removed from endpoint detail page" });
+        pushToast({ tone: "success", title: "Endpoint archived" });
+      } else {
+        await api.deleteEndpoint(endpoint.endpointId, { force, cleanup });
+        pushToast({ tone: "success", title: "Endpoint deleted" });
+      }
+      router.push("/endpoints");
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "Failed to remove endpoint",
+        description: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
   if (!loading && !endpoint) {
     return (
       <EmptyState
@@ -233,6 +288,10 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
               <ShieldOff className="mr-2 h-4 w-4" />
               Isolate
             </Button>
+            <Button variant="danger" onClick={() => void removeEndpoint()} disabled={loading || !endpoint}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remove endpoint
+            </Button>
           </>
         }
       />
@@ -305,6 +364,20 @@ export function EndpointDetailPage({ endpointId }: { endpointId: string }) {
                   ? assignedPolicies.map((item) => item.name).join(", ")
                   : policy?.name ?? "No resolved policy"}
               </p>
+              {assignedPolicies.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {assignedPolicies.map((item) => (
+                    <Button
+                      key={`${item.id}-${item.name}`}
+                      variant="ghost"
+                      className="px-3 py-1.5 text-rose-300 hover:text-rose-200"
+                      onClick={() => void unassignPolicy(item.id, item.name)}
+                    >
+                      Unassign {item.name}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="rounded-2xl border border-border bg-slate-950/35 p-4">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Latest decision</p>

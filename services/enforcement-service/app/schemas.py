@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import ipaddress
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AuditEvent(BaseModel):
@@ -121,7 +121,25 @@ class IpGroupResponse(BaseModel):
 
 
 class IpGroupMemberAddRequest(BaseModel):
-    object_id: str = Field(min_length=1, max_length=128)
+    object_id: str | None = Field(default=None, min_length=1, max_length=128)
+    ip_address: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, max_length=255)
+    endpoint_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_member_target(self) -> "IpGroupMemberAddRequest":
+        if not self.object_id and not self.ip_address:
+            raise ValueError("object_id or ip_address is required")
+        return self
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_optional_ip_address(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        ipaddress.ip_address(normalized)
+        return normalized
 
 
 class IpAddressMembershipRequest(BaseModel):
@@ -135,6 +153,34 @@ class IpAddressMembershipRequest(BaseModel):
         normalized = value.strip()
         ipaddress.ip_address(normalized)
         return normalized
+
+
+class ManualGroupMemberResponse(BaseModel):
+    status: str = "success"
+    operation: str
+    group: IpGroupResponse
+    ip_object: IpObjectResponse | None = None
+    warning: str | None = None
+
+
+class PolicyCleanupGroupRef(BaseModel):
+    group_id: str | None = None
+    group_name: str | None = None
+
+
+class PolicyCleanupRequest(BaseModel):
+    endpoint_id: str = Field(min_length=1, max_length=128)
+    ip_address: str | None = Field(default=None, max_length=64)
+    policy_id: int | None = None
+    policy_name: str | None = Field(default=None, max_length=255)
+    groups: list[PolicyCleanupGroupRef] = Field(default_factory=list)
+    reason: str | None = Field(default=None, max_length=255)
+
+
+class EndpointCleanupRequest(BaseModel):
+    endpoint_id: str = Field(min_length=1, max_length=128)
+    ip_address: str | None = Field(default=None, max_length=64)
+    reason: str | None = Field(default=None, max_length=255)
 
 
 class BackgroundJobResponse(BaseModel):
