@@ -9,6 +9,8 @@ from app.config import (
     FORTIGATE_TOKEN,
     FORTIGATE_VERIFY_TLS,
     FORTIGATE_VDOM,
+    HTTP_CONNECT_TIMEOUT_SECONDS,
+    HTTP_READ_TIMEOUT_SECONDS,
     HTTP_RETRIES,
     HTTP_TIMEOUT_SECONDS,
 )
@@ -160,15 +162,21 @@ class FortiGateAdapter(EnforcementAdapter):
         token = adapter_settings.get("token") or FORTIGATE_TOKEN
         vdom = adapter_settings.get("vdom") or FORTIGATE_VDOM
         resolved_group_name = group_name or adapter_settings.get("quarantine_group") or FORTIGATE_QUARANTINE_GROUP
-        timeout = float(adapter_settings.get("timeout_seconds", HTTP_TIMEOUT_SECONDS))
+        connect_timeout = float(adapter_settings.get("connect_timeout_seconds", HTTP_CONNECT_TIMEOUT_SECONDS))
+        read_timeout = float(
+            adapter_settings.get(
+                "read_timeout_seconds",
+                adapter_settings.get("timeout_seconds", min(HTTP_TIMEOUT_SECONDS, HTTP_READ_TIMEOUT_SECONDS)),
+            )
+        )
         retries = int(adapter_settings.get("retries", HTTP_RETRIES))
         return {
             "base_url": str(base_url).rstrip("/"),
             "token": token,
             "vdom": vdom,
             "group_name": resolved_group_name,
-            "timeout": timeout,
-            "retries": max(1, retries),
+            "timeout": (connect_timeout, read_timeout),
+            "retries": max(1, min(retries, 3)),
         }
 
     def check_connection(self, settings: dict) -> dict:

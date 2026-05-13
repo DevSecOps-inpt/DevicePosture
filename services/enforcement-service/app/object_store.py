@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -82,8 +82,19 @@ def add_object_to_group(*, db: Session, group: IpGroupModel, ip_object: IpObject
     if existing_member is not None:
         return False
 
-    member = IpGroupMemberModel(group_ref=group.id, object_ref=ip_object.id)
-    db.add(member)
+    result = db.execute(
+        text(
+            "INSERT OR IGNORE INTO ip_group_members (group_ref, object_ref, created_at) "
+            "VALUES (:group_ref, :object_ref, :created_at)"
+        ),
+        {
+            "group_ref": group.id,
+            "object_ref": ip_object.id,
+            "created_at": _utcnow(),
+        },
+    )
+    if result.rowcount == 0:
+        return False
     group.updated_at = _utcnow()
     db.flush()
     return True

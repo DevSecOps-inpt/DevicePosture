@@ -6,7 +6,12 @@ from typing import Any
 
 import requests
 
-from app.config import HTTP_RETRIES, HTTP_TIMEOUT_SECONDS
+from app.config import (
+    HTTP_CONNECT_TIMEOUT_SECONDS,
+    HTTP_READ_TIMEOUT_SECONDS,
+    HTTP_RETRIES,
+    HTTP_TIMEOUT_SECONDS,
+)
 from posture_shared.interfaces.adapters import EnforcementAdapter
 from posture_shared.models.enforcement import EnforcementAction, EnforcementResult
 
@@ -69,7 +74,7 @@ class PaloAltoXmlApiClient:
         base_url: str,
         api_key: str,
         verify_tls: bool,
-        timeout: float,
+        timeout: float | tuple[float, float],
         retries: int,
         session: requests.Session | None = None,
     ) -> None:
@@ -227,7 +232,13 @@ class PaloAltoAdapter(EnforcementAdapter):
             base_url = hostname if hostname.startswith(("http://", "https://")) else f"https://{hostname}"
 
         api_key = _normalize_text(adapter_settings.get("api_key") or adapter_settings.get("token"))
-        timeout = float(adapter_settings.get("timeout_seconds", HTTP_TIMEOUT_SECONDS))
+        connect_timeout = float(adapter_settings.get("connect_timeout_seconds", HTTP_CONNECT_TIMEOUT_SECONDS))
+        read_timeout = float(
+            adapter_settings.get(
+                "read_timeout_seconds",
+                adapter_settings.get("timeout_seconds", min(HTTP_TIMEOUT_SECONDS, HTTP_READ_TIMEOUT_SECONDS)),
+            )
+        )
         retries = int(adapter_settings.get("retries", HTTP_RETRIES))
         verify_tls = _coerce_bool(adapter_settings.get("verify_tls"), True)
         vsys = _normalize_text(adapter_settings.get("vsys") or adapter_settings.get("scope") or "vsys1") or "vsys1"
@@ -236,8 +247,8 @@ class PaloAltoAdapter(EnforcementAdapter):
             "base_url": base_url.rstrip("/"),
             "api_key": api_key,
             "verify_tls": verify_tls,
-            "timeout": timeout,
-            "retries": max(1, retries),
+            "timeout": (connect_timeout, read_timeout),
+            "retries": max(1, min(retries, 3)),
             "vsys": vsys,
             "group_mappings": _normalize_group_mappings(adapter_settings.get("group_mappings")),
         }

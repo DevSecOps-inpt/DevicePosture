@@ -17,12 +17,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import desc, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import build_registry
 from app.adapters.fortigate import FortiGateAdapter
 from app.adapters.palo_alto import PaloAltoAdapter
-from app.config import DEFAULT_ADAPTER, HTTP_TIMEOUT_SECONDS
+from app.config import DEFAULT_ADAPTER, HTTP_CONNECT_TIMEOUT_SECONDS, HTTP_READ_TIMEOUT_SECONDS, HTTP_TIMEOUT_SECONDS
 from app.config import (
     ADAPTER_TOKEN_MASK,
     ALLOW_POLICY_HTTP_ACTIONS,
@@ -83,6 +83,10 @@ def ensure_performance_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_enforcement_records_endpoint_created ON enforcement_records(endpoint_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_audit_events_endpoint_created ON audit_events(endpoint_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_background_jobs_status_created ON background_jobs(status, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_adapter_configs_lookup ON adapter_configs(adapter, is_active, name)",
+        "CREATE INDEX IF NOT EXISTS idx_ip_objects_type_value ON ip_objects(object_type, value)",
+        "CREATE INDEX IF NOT EXISTS idx_ip_group_members_group_object ON ip_group_members(group_ref, object_ref)",
+        "CREATE INDEX IF NOT EXISTS idx_ip_group_members_object_group ON ip_group_members(object_ref, group_ref)",
     ]
     with engine.begin() as connection:
         for statement in statements:
@@ -372,6 +376,14 @@ def _circuit_key_for_url(url: str) -> str:
     return f"{parsed.scheme}://{host}:{port}"
 
 
+def _adapter_circuit_key(adapter: str, adapter_profile: str | None) -> str:
+    return f"adapter://{normalize_adapter_name(adapter)}/{str(adapter_profile or 'default').strip().lower()}"
+
+
+def _fast_adapter_timeout() -> tuple[float, float]:
+    return (min(HTTP_CONNECT_TIMEOUT_SECONDS, 3.0), min(HTTP_READ_TIMEOUT_SECONDS, 5.0))
+
+
 def _circuit_is_open(key: str) -> tuple[bool, float]:
     now = time.time()
     with _circuit_breaker_lock:
@@ -420,7 +432,7 @@ def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
         # Health probes should be fast and non-blocking for the UI.
         # Do not let per-profile enforcement retry/timeout values stall the dashboard.
         settings["retries"] = 1
-        settings["timeout"] = min(float(settings.get("timeout", 5.0)), 3.0)
+        settings["timeout"] = _fast_adapter_timeout()
         try:
             details = fortigate_adapter.check_connection(settings)
             version = details.get("version")
@@ -460,7 +472,7 @@ def probe_adapter_health(item: AdapterConfigModel) -> AdapterHealthResponse:
     if adapter_name == "palo_alto":
         settings = palo_alto_adapter.build_settings(adapter_settings=item.settings or {})
         settings["retries"] = 1
-        settings["timeout"] = min(float(settings.get("timeout", 5.0)), 3.0)
+        settings["timeout"] = _fast_adapter_timeout()
         try:
             details = palo_alto_adapter.check_connection(settings)
             mapping_checks = details.get("mapping_checks", [])
@@ -888,7 +900,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 continue
 
             object_name = str(rendered_parameters.get("object_name") or f"endpoint-{decision.endpoint_id}")
-            with _get_group_operation_lock("object-group", str(group_name)):
+            with _get_group_operation_lock("object-group", str(group_name), decision.endpoint_ip):
                 group = resolved_group if resolved_group is not None else ensure_ip_group(db, str(group_name))
                 ip_object = ensure_ip_object(
                     db=db,
@@ -951,7 +963,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                 append_result(payload)
                 continue
 
-            with _get_group_operation_lock("object-group", str(group.name)):
+            with _get_group_operation_lock("object-group", str(group.name), decision.endpoint_ip):
                 removed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
                 operation = "removed" if removed else "already_absent"
             payload = {
@@ -1023,8 +1035,32 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     adapter_profile=profile_name,
                     decision=decision_payload,
                 )
+                circuit_key = _adapter_circuit_key(selected_adapter, profile_name)
+                is_open, opened_until = _circuit_is_open(circuit_key)
+                if is_open:
+                    append_result(
+                        {
+                            "action_type": action_type,
+                            "status": "failed",
+                            "adapter": selected_adapter,
+                            "adapter_profile": profile_name,
+                            "group_name": group_name,
+                            "group_id": decision_payload.get("group_id"),
+                            "message": f"Adapter circuit breaker is open until {datetime.fromtimestamp(opened_until, tz=timezone.utc).isoformat()}",
+                        }
+                    )
+                    continue
+
+                db.flush()
+                db.commit()
+                adapter_started_at = time.perf_counter()
                 try:
                     enforcement_result = registry.execute(action)
+                    adapter_duration_ms = (time.perf_counter() - adapter_started_at) * 1000
+                    if enforcement_result.status == "success":
+                        _circuit_mark_success(circuit_key)
+                    else:
+                        _circuit_mark_failure(circuit_key)
                     persist_enforcement_result(db, enforcement_result)
                     payload = {
                         "action_type": action_type,
@@ -1038,15 +1074,20 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                             if isinstance(enforcement_result.details, dict)
                             else None
                         ) or enforcement_result.status,
+                        "adapter_duration_ms": round(adapter_duration_ms, 2),
                         "details": enforcement_result.details,
                     }
                 except Exception as exc:  # pragma: no cover - defensive guard
+                    adapter_duration_ms = (time.perf_counter() - adapter_started_at) * 1000
+                    _circuit_mark_failure(circuit_key)
                     payload = {
                         "action_type": action_type,
                         "status": "failed",
                         "adapter": selected_adapter,
                         "adapter_profile": profile_name,
                         "group_name": group_name,
+                        "group_id": decision_payload.get("group_id"),
+                        "adapter_duration_ms": round(adapter_duration_ms, 2),
                         "message": f"adapter execution crashed: {exc}",
                     }
             append_result(payload)
@@ -1320,7 +1361,19 @@ def fallback_quarantine(decision: ComplianceDecision, db: Session) -> Enforcemen
         ip_address=decision.endpoint_ip,
         decision=decision.model_dump(mode="json"),
     )
-    result = registry.execute(action)
+    started_at = time.perf_counter()
+    try:
+        result = registry.execute(action)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        result = EnforcementResult(
+            adapter=DEFAULT_ADAPTER,
+            action="quarantine",
+            endpoint_id=decision.endpoint_id,
+            status="failed",
+            details={"error": f"adapter execution crashed: {exc}"},
+        )
+    if isinstance(result.details, dict):
+        result.details.setdefault("adapter_duration_ms", round((time.perf_counter() - started_at) * 1000, 2))
     persist_enforcement_result(db, result)
     event_type = "endpoint.quarantined" if result.status == "success" else "endpoint.quarantine_failed"
     store_audit_event(db, event_type, decision.endpoint_id, result.model_dump(mode="json"))
@@ -1461,7 +1514,45 @@ def run_action(
     if profile_name and normalized_action.adapter_profile != profile_name:
         normalized_action = normalized_action.model_copy(update={"adapter_profile": profile_name})
     normalized_action = normalized_action.model_copy(update={"decision": merged_decision})
-    result = registry.execute(normalized_action)
+
+    circuit_key = _adapter_circuit_key(normalized_action.adapter, normalized_action.adapter_profile)
+    is_open, opened_until = _circuit_is_open(circuit_key)
+    started_at = time.perf_counter()
+    if is_open:
+        result = EnforcementResult(
+            adapter=normalized_action.adapter,
+            action=normalized_action.action,
+            endpoint_id=normalized_action.endpoint_id,
+            status="failed",
+            details={
+                "error": (
+                    "Adapter circuit breaker is open until "
+                    f"{datetime.fromtimestamp(opened_until, tz=timezone.utc).isoformat()}"
+                ),
+                "adapter_profile": normalized_action.adapter_profile,
+            },
+        )
+    else:
+        try:
+            result = registry.execute(normalized_action)
+            if result.status == "success":
+                _circuit_mark_success(circuit_key)
+            else:
+                _circuit_mark_failure(circuit_key)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            _circuit_mark_failure(circuit_key)
+            result = EnforcementResult(
+                adapter=normalized_action.adapter,
+                action=normalized_action.action,
+                endpoint_id=normalized_action.endpoint_id,
+                status="failed",
+                details={
+                    "error": f"adapter execution crashed: {exc}",
+                    "adapter_profile": normalized_action.adapter_profile,
+                },
+            )
+    if isinstance(result.details, dict):
+        result.details.setdefault("adapter_duration_ms", round((time.perf_counter() - started_at) * 1000, 2))
     persist_enforcement_result(db, result)
     store_audit_event(db, "endpoint.action.requested", normalized_action.endpoint_id, normalized_action.model_dump(mode="json"))
     db.commit()
@@ -1575,7 +1666,16 @@ def list_adapters(
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[AdapterConfigResponse]:
+    started_at = time.perf_counter()
     items = db.scalars(select(AdapterConfigModel).order_by(AdapterConfigModel.name).offset(offset).limit(limit)).all()
+    db_duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "local_read path=/adapters db_duration_ms=%.2f row_count=%s limit=%s offset=%s",
+        db_duration_ms,
+        len(items),
+        limit,
+        offset,
+    )
     return [to_adapter_config_response(item) for item in items]
 
 
@@ -1662,7 +1762,22 @@ def list_ip_objects(
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[IpObjectResponse]:
-    items = db.scalars(select(IpObjectModel).order_by(IpObjectModel.name).offset(offset).limit(limit)).all()
+    started_at = time.perf_counter()
+    items = db.scalars(
+        select(IpObjectModel)
+        .options(selectinload(IpObjectModel.memberships))
+        .order_by(IpObjectModel.name)
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    db_duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "local_read path=/objects/ip-objects db_duration_ms=%.2f row_count=%s limit=%s offset=%s",
+        db_duration_ms,
+        len(items),
+        limit,
+        offset,
+    )
     return [to_ip_object_response(item) for item in items]
 
 
@@ -1749,7 +1864,22 @@ def list_ip_groups(
     _: None = Depends(require_api_key),
     db: Session = Depends(get_db),
 ) -> list[IpGroupResponse]:
-    items = db.scalars(select(IpGroupModel).order_by(IpGroupModel.name).offset(offset).limit(limit)).all()
+    started_at = time.perf_counter()
+    items = db.scalars(
+        select(IpGroupModel)
+        .options(selectinload(IpGroupModel.members).selectinload(IpGroupMemberModel.ip_object))
+        .order_by(IpGroupModel.name)
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    db_duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "local_read path=/objects/ip-groups db_duration_ms=%.2f row_count=%s limit=%s offset=%s",
+        db_duration_ms,
+        len(items),
+        limit,
+        offset,
+    )
     return [to_ip_group_response(item) for item in items]
 
 
