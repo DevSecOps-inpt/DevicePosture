@@ -1,10 +1,11 @@
+import os
 from datetime import datetime, timezone
 
 from app.models import Endpoint
 from app.schemas import EndpointSummary
 
 
-DEFAULT_ACTIVITY_GRACE_MULTIPLIER = 3
+DEFAULT_ACTIVITY_GRACE_MULTIPLIER = int(os.getenv("ACTIVITY_GRACE_MULTIPLIER", "3"))
 
 
 def _to_utc(value: datetime | None) -> datetime | None:
@@ -44,6 +45,7 @@ def build_endpoint_summary(endpoint: Endpoint) -> EndpointSummary:
         endpoint_id=endpoint.endpoint_id,
         hostname=endpoint.hostname,
         last_seen=endpoint.last_seen,
+        last_heartbeat_at=getattr(endpoint, "last_heartbeat_at", None),
         last_collected_at=endpoint.last_collected_at,
         expected_interval_seconds=endpoint.expected_interval_seconds,
         activity_grace_multiplier=endpoint.activity_grace_multiplier,

@@ -1,27 +1,113 @@
 {
   "agent": {
-    "name": "windows-powershell-agent",
-    "interval_seconds": 2,
-    "active_grace_multiplier": 3,
+    "agent_name": "windows-powershell-agent",
+    "agent_version": "1.1.0-mvp-typed-telemetry",
+    "hostname_source": "computername",
+    "ip_detection": "first_active_ipv4",
     "log_path": "%ProgramData%\\DevicePosture\\collector.log",
     "write_payload_file": ""
   },
-  "transport": {
-    "enabled": true,
-    "url": "http://192.168.4.12:8011/telemetry",
+  "server": {
+    "base_url": "http://127.0.0.1:8011",
+    "endpoints": {
+      "legacy_telemetry": "/telemetry",
+      "heartbeat": "/telemetry/heartbeat",
+      "posture_snapshot": "/telemetry/posture",
+      "inventory_full": "/telemetry/inventory/full",
+      "inventory_delta": "/telemetry/inventory/delta"
+    },
     "timeout_seconds": 10,
-    "retry_count": 3,
+    "retry": {
+      "retry_count": 3,
+      "backoff_seconds": 1
+    },
     "bearer_token": "",
     "headers": {}
   },
-  "collectors": {
-    "enabled": [
+  "scheduling": {
+    "heartbeat_interval_seconds": 3,
+    "posture_interval_seconds": 3,
+    "inventory_delta_interval_seconds": 10,
+    "inventory_full_interval_seconds": 900,
+    "send_full_inventory_on_startup": true,
+    "send_full_inventory_on_resync_required": true
+  },
+  "payload": {
+    "gzip_enabled": true,
+    "max_payload_bytes": 10485760,
+    "include_sequence_numbers": true,
+    "include_hashes": true
+  },
+  "heartbeat": {
+    "enabled": true,
+    "include": [
+      "hostname",
+      "ip_address",
+      "agent_version",
+      "uptime"
+    ]
+  },
+  "posture_snapshot": {
+    "enabled": true,
+    "trigger_policy_evaluation": true,
+    "collectors": [
+      "system_info",
+      "antivirus",
+      "domain_membership",
+      "critical_patches_summary",
+      "required_services",
+      "forbidden_processes",
+      "security_processes"
+    ],
+    "required_services": [
+      "WinDefend",
+      "SecurityHealthService"
+    ],
+    "security_processes": [
+      "MsMpEng",
+      "SecurityHealthSystray"
+    ],
+    "forbidden_processes": [],
+    "critical_patches": []
+  },
+  "inventory": {
+    "enabled": true,
+    "full_snapshot_categories": [
       "system_info",
       "hotfixes",
       "services",
       "processes",
       "antivirus"
     ],
-    "settings": {}
+    "delta_categories": [
+      "hotfixes",
+      "services",
+      "processes"
+    ],
+    "services": {
+      "enabled": true
+    },
+    "processes": {
+      "enabled": true
+    },
+    "hotfixes": {
+      "enabled": true
+    },
+    "software": {
+      "enabled": false
+    }
+  },
+  "local_state": {
+    "enabled": true,
+    "state_file": "%ProgramData%\\DevicePosture\\collector-state.json",
+    "store_last_inventory_hash": true,
+    "store_last_sequence_numbers": true,
+    "store_last_baselines": true
+  },
+  "logging": {
+    "level": "INFO",
+    "log_file": "%ProgramData%\\DevicePosture\\collector.log",
+    "log_payload_size": true,
+    "log_collection_duration": true
   }
 }

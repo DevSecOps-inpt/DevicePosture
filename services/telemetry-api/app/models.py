@@ -19,10 +19,14 @@ class Endpoint(Base):
     last_ipv4: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     activity_grace_multiplier: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_activity_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    inventory_baseline_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    inventory_sequence_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    inventory_current_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     telemetry_records: Mapped[list["TelemetryRecord"]] = relationship(
         back_populates="endpoint",

@@ -4,10 +4,13 @@ import threading
 import time
 import ipaddress
 import json
+import gzip
+import hashlib
 from collections import defaultdict, deque
 from uuid import uuid4
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote_plus
 from urllib.request import Request as UrlRequest, urlopen
@@ -15,6 +18,7 @@ from urllib.request import Request as UrlRequest, urlopen
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from pydantic import ValidationError
 from sqlalchemy import desc, inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -63,11 +67,37 @@ def configure_logging() -> logging.Logger:
 
 logger = configure_logging()
 
-MAX_TELEMETRY_BODY_BYTES = int(os.getenv("MAX_TELEMETRY_BODY_BYTES", "1048576"))
+HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "3"))
+ACTIVITY_GRACE_MULTIPLIER = int(os.getenv("ACTIVITY_GRACE_MULTIPLIER", "3"))
+ENDPOINT_INACTIVE_AFTER_SECONDS = int(
+    os.getenv("ENDPOINT_INACTIVE_AFTER_SECONDS", str(HEARTBEAT_INTERVAL_SECONDS * ACTIVITY_GRACE_MULTIPLIER))
+)
+ACTIVITY_CHECK_INTERVAL_SECONDS = int(os.getenv("ACTIVITY_CHECK_INTERVAL_SECONDS", "3"))
+STATUS_CHANGE_COOLDOWN_SECONDS = int(os.getenv("STATUS_CHANGE_COOLDOWN_SECONDS", "6"))
+MAX_TELEMETRY_BODY_BYTES = int(os.getenv("MAX_TELEMETRY_BODY_BYTES", "10485760"))
+ACCEPT_GZIP_TELEMETRY = os.getenv("ACCEPT_GZIP_TELEMETRY", "true").lower() == "true"
+POSTURE_TRIGGERS_EVALUATION = os.getenv(
+    "POSTURE_TRIGGERS_EVALUATION",
+    os.getenv("EVALUATE_POSTURE_ON_TELEMETRY", "true"),
+).lower() == "true"
+FORCE_EVALUATION_ON_EVERY_POSTURE = os.getenv("FORCE_EVALUATION_ON_EVERY_POSTURE", "true").lower() == "true"
+SKIP_EVALUATION_IF_POSTURE_HASH_UNCHANGED = os.getenv(
+    "SKIP_EVALUATION_IF_POSTURE_HASH_UNCHANGED",
+    "false",
+).lower() == "true"
+INVENTORY_FULL_TRIGGERS_EVALUATION = os.getenv("INVENTORY_FULL_TRIGGERS_EVALUATION", "false").lower() == "true"
+INVENTORY_DELTA_TRIGGERS_EVALUATION = os.getenv("INVENTORY_DELTA_TRIGGERS_EVALUATION", "false").lower() == "true"
+INVENTORY_RESYNC_ON_SEQUENCE_GAP = os.getenv("INVENTORY_RESYNC_ON_SEQUENCE_GAP", "true").lower() == "true"
+INVENTORY_RESYNC_ON_HASH_MISMATCH = os.getenv("INVENTORY_RESYNC_ON_HASH_MISMATCH", "true").lower() == "true"
+PROCESS_POSTURE_IN_BACKGROUND = os.getenv("PROCESS_POSTURE_IN_BACKGROUND", "true").lower() == "true"
+PROCESS_INVENTORY_IN_BACKGROUND = os.getenv("PROCESS_INVENTORY_IN_BACKGROUND", "true").lower() == "true"
+LOG_TELEMETRY_PAYLOAD_SIZE = os.getenv("LOG_TELEMETRY_PAYLOAD_SIZE", "true").lower() == "true"
+LOG_TELEMETRY_PROCESSING_DURATION = os.getenv("LOG_TELEMETRY_PROCESSING_DURATION", "true").lower() == "true"
+SLOW_TELEMETRY_WARNING_MS = float(os.getenv("SLOW_TELEMETRY_WARNING_MS", "1000"))
+SLOW_EVALUATION_WARNING_MS = float(os.getenv("SLOW_EVALUATION_WARNING_MS", "3000"))
 TELEMETRY_RATE_LIMIT_PER_MINUTE = int(os.getenv("TELEMETRY_RATE_LIMIT_PER_MINUTE", "120"))
 EVALUATION_ENGINE_URL = os.getenv("EVALUATION_ENGINE_URL", "http://127.0.0.1:8003")
 EVALUATION_HTTP_TIMEOUT_SECONDS = float(os.getenv("EVALUATION_HTTP_TIMEOUT_SECONDS", "8"))
-EVALUATE_POSTURE_ON_TELEMETRY = os.getenv("EVALUATE_POSTURE_ON_TELEMETRY", "true").lower() == "true"
 INTER_SERVICE_API_KEY = os.getenv("POSTURE_API_KEY", "").strip()
 _telemetry_rate_state: dict[str, deque[float]] = defaultdict(deque)
 _telemetry_rate_lock = threading.Lock()
@@ -85,12 +115,20 @@ def ensure_endpoint_runtime_columns() -> None:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_ipv4 VARCHAR(64)")
     if "last_source_ip" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_source_ip VARCHAR(64)")
+    if "last_heartbeat_at" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN last_heartbeat_at DATETIME")
     if "expected_interval_seconds" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN expected_interval_seconds INTEGER")
     if "activity_grace_multiplier" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN activity_grace_multiplier INTEGER")
     if "last_activity_status" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_activity_status VARCHAR(32)")
+    if "inventory_baseline_id" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN inventory_baseline_id VARCHAR(128)")
+    if "inventory_sequence_number" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN inventory_sequence_number INTEGER")
+    if "inventory_current_hash" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN inventory_current_hash VARCHAR(128)")
 
     if statements:
         with engine.begin() as connection:
@@ -203,14 +241,22 @@ def _inter_service_headers() -> dict[str, str]:
 
 
 def trigger_posture_evaluation(endpoint_id: str) -> None:
-    if not EVALUATE_POSTURE_ON_TELEMETRY:
+    if not POSTURE_TRIGGERS_EVALUATION:
         return
     url = f"{EVALUATION_ENGINE_URL.rstrip('/')}/evaluate-all/{quote_plus(endpoint_id)}"
     logger.info("triggering posture evaluation endpoint_id=%s url=%s", endpoint_id, url)
     request = UrlRequest(url=url, method="POST", data=b"{}", headers=_inter_service_headers())
     try:
+        started_at = time.perf_counter()
         with urlopen(request, timeout=EVALUATION_HTTP_TIMEOUT_SECONDS) as response:
             raw = response.read().decode("utf-8")
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        if duration_ms > SLOW_EVALUATION_WARNING_MS:
+            logger.warning(
+                "slow posture evaluation trigger endpoint_id=%s duration_ms=%.2f",
+                endpoint_id,
+                duration_ms,
+            )
         evaluated_count = 0
         if raw:
             payload = json.loads(raw)
@@ -272,14 +318,12 @@ def resolve_client_ip(request: Request) -> str | None:
         return fallback
 
 
-@app.post("/telemetry", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
-def submit_telemetry(
-    telemetry: EndpointTelemetry,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    _: None = Depends(require_api_key),
-    db: Session = Depends(get_db),
-) -> TelemetryIngestResponse:
+def _stable_hash(payload: Any) -> str:
+    normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+async def _read_telemetry_body(request: Request) -> tuple[dict[str, Any], int]:
     content_length = request.headers.get("content-length", "").strip()
     if content_length:
         try:
@@ -291,39 +335,153 @@ def submit_telemetry(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid Content-Length header")
 
-    source_ip = resolve_client_ip(request)
-    if source_ip is not None:
-        _apply_ingest_rate_limit(source_ip)
-    logger.info(
-        "telemetry received endpoint_id=%s hostname=%s source_ip=%s reported_ipv4=%s",
-        telemetry.endpoint_id,
-        telemetry.hostname,
-        source_ip,
-        telemetry.network.ipv4,
-    )
+    body = await request.body()
+    if len(body) > MAX_TELEMETRY_BODY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Telemetry payload is too large",
+        )
+    if request.headers.get("content-encoding", "").lower() == "gzip":
+        if not ACCEPT_GZIP_TELEMETRY:
+            raise HTTPException(status_code=415, detail="Gzip telemetry is disabled")
+        try:
+            body = gzip.decompress(body)
+        except OSError as exc:
+            raise HTTPException(status_code=400, detail="Invalid gzip telemetry payload") from exc
+        if len(body) > MAX_TELEMETRY_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Telemetry payload is too large",
+            )
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid telemetry JSON payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Telemetry payload must be a JSON object")
+    return payload, len(body)
 
-    endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == telemetry.endpoint_id))
+
+def _parse_collected_at(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)
+
+
+def _payload_network_ipv4(payload: dict[str, Any]) -> str | None:
+    network = payload.get("network")
+    if isinstance(network, dict):
+        value = network.get("ipv4")
+        if value:
+            return str(value)
+    for key in ("ip_address", "current_ip", "ipv4"):
+        if payload.get(key):
+            return str(payload[key])
+    return None
+
+
+def _payload_agent_interval(payload: dict[str, Any], payload_type: str) -> int:
+    agent = payload.get("agent")
+    if isinstance(agent, dict) and agent.get("interval_seconds"):
+        try:
+            return max(1, int(agent["interval_seconds"]))
+        except (TypeError, ValueError):
+            pass
+    if payload_type == "heartbeat":
+        return HEARTBEAT_INTERVAL_SECONDS
+    if payload_type == "posture_snapshot":
+        return int(os.getenv("POSTURE_INTERVAL_SECONDS", str(HEARTBEAT_INTERVAL_SECONDS)))
+    if payload_type == "inventory_delta":
+        return int(os.getenv("INVENTORY_DELTA_INTERVAL_SECONDS", "10"))
+    return int(os.getenv("INVENTORY_FULL_INTERVAL_SECONDS", "900"))
+
+
+def _extract_endpoint_identity(payload: dict[str, Any]) -> tuple[str, str]:
+    endpoint_id = (
+        payload.get("endpoint_id")
+        or payload.get("endpoint_ref")
+        or payload.get("device_id")
+        or payload.get("machine_guid")
+    )
+    if not endpoint_id:
+        raise HTTPException(status_code=422, detail="Telemetry payload requires endpoint_id or endpoint_ref")
+    hostname = payload.get("hostname") or payload.get("host_name") or str(endpoint_id)
+    return str(endpoint_id), str(hostname)
+
+
+def _normalize_endpoint_telemetry_payload(payload: dict[str, Any], payload_type: str) -> dict[str, Any]:
+    endpoint_id, hostname = _extract_endpoint_identity(payload)
+    normalized = dict(payload)
+    normalized["schema_version"] = str(normalized.get("schema_version") or "1.0")
+    normalized["collector_type"] = str(normalized.get("collector_type") or normalized.get("payload_type") or payload_type)
+    normalized["endpoint_id"] = endpoint_id
+    normalized["hostname"] = hostname
+    normalized["collected_at"] = normalized.get("collected_at") or datetime.now(timezone.utc).isoformat()
+    normalized["network"] = normalized.get("network") if isinstance(normalized.get("network"), dict) else {}
+    normalized["network"]["ipv4"] = _payload_network_ipv4(payload)
+    normalized["os"] = normalized.get("os") if isinstance(normalized.get("os"), dict) else {}
+    normalized["hotfixes"] = normalized.get("hotfixes") if isinstance(normalized.get("hotfixes"), list) else []
+    normalized["services"] = normalized.get("services") if isinstance(normalized.get("services"), list) else []
+    normalized["processes"] = normalized.get("processes") if isinstance(normalized.get("processes"), list) else []
+    normalized["antivirus_products"] = (
+        normalized.get("antivirus_products") if isinstance(normalized.get("antivirus_products"), list) else []
+    )
+    normalized["agent"] = normalized.get("agent") if isinstance(normalized.get("agent"), dict) else {}
+    normalized["agent"]["interval_seconds"] = _payload_agent_interval(payload, payload_type)
+    normalized["agent"]["active_grace_multiplier"] = ACTIVITY_GRACE_MULTIPLIER
+    normalized["extras"] = normalized.get("extras") if isinstance(normalized.get("extras"), dict) else {}
+    normalized["extras"]["payload_type"] = payload_type
+    return normalized
+
+
+def _upsert_endpoint_liveness(
+    *,
+    db: Session,
+    payload: dict[str, Any],
+    payload_type: str,
+    source_ip: str | None,
+) -> tuple[Endpoint, bool, datetime]:
+    endpoint_id, hostname = _extract_endpoint_identity(payload)
+    collected_at = _parse_collected_at(payload.get("collected_at"))
+    endpoint = db.scalar(select(Endpoint).where(Endpoint.endpoint_id == endpoint_id))
     created_endpoint = False
-    previous_status = None
     if endpoint is None:
-        endpoint = Endpoint(endpoint_id=telemetry.endpoint_id, hostname=telemetry.hostname)
+        endpoint = Endpoint(endpoint_id=endpoint_id, hostname=hostname)
         db.add(endpoint)
         db.flush()
         created_endpoint = True
-        previous_status = "unknown"
-    else:
-        previous_status = endpoint.last_activity_status or "unknown"
 
-    endpoint.hostname = telemetry.hostname
-    endpoint.last_ipv4 = telemetry.network.ipv4
+    now = datetime.now(timezone.utc)
+    endpoint.hostname = hostname
+    endpoint.last_ipv4 = _payload_network_ipv4(payload)
     endpoint.last_source_ip = source_ip
-    endpoint.last_seen = datetime.now(timezone.utc)
-    endpoint.last_collected_at = telemetry.collected_at
-    endpoint.expected_interval_seconds = telemetry.agent.interval_seconds
-    endpoint.activity_grace_multiplier = telemetry.agent.active_grace_multiplier or DEFAULT_ACTIVITY_GRACE_MULTIPLIER
+    endpoint.last_seen = now
+    endpoint.last_heartbeat_at = now
+    endpoint.last_collected_at = collected_at
+    endpoint.expected_interval_seconds = _payload_agent_interval(payload, payload_type)
+    endpoint.activity_grace_multiplier = ACTIVITY_GRACE_MULTIPLIER
     endpoint.last_activity_status = "active"
+    db.commit()
+    db.refresh(endpoint)
+    return endpoint, created_endpoint, now
 
+
+def _store_latest_telemetry_record(
+    *,
+    db: Session,
+    endpoint: Endpoint,
+    telemetry: EndpointTelemetry,
+    payload: dict[str, Any],
+    payload_type: str,
+    source_ip: str | None,
+) -> TelemetryRecord:
     telemetry_payload = telemetry.model_dump(mode="json")
+    telemetry_payload.update({"raw_input": payload, "payload_type": payload_type})
     extras = telemetry_payload.get("extras")
     if not isinstance(extras, dict):
         extras = {}
@@ -338,7 +496,7 @@ def submit_telemetry(
             collected_at=telemetry.collected_at,
             source_ip=source_ip,
             collector_type=telemetry.collector_type,
-            telemetry_type="endpoint_posture",
+            telemetry_type=payload_type,
             core_ipv4=telemetry.network.ipv4,
             core_os_name=telemetry.os.name,
             core_os_version=telemetry.os.version,
@@ -350,7 +508,7 @@ def submit_telemetry(
         record.collected_at = telemetry.collected_at
         record.source_ip = source_ip
         record.collector_type = telemetry.collector_type
-        record.telemetry_type = "endpoint_posture"
+        record.telemetry_type = payload_type
         record.core_ipv4 = telemetry.network.ipv4
         record.core_os_name = telemetry.os.name
         record.core_os_version = telemetry.os.version
@@ -360,25 +518,247 @@ def submit_telemetry(
     db.flush()
     db.commit()
     db.refresh(record)
-    background_tasks.add_task(trigger_posture_evaluation, telemetry.endpoint_id)
+    return record
+
+
+def _inventory_delta_resync_reason(endpoint: Endpoint, payload: dict[str, Any]) -> str | None:
+    baseline_id = payload.get("baseline_id")
+    sequence_number = payload.get("sequence_number")
+    previous_hash = payload.get("previous_hash")
+    if not baseline_id or baseline_id != endpoint.inventory_baseline_id:
+        return "baseline_mismatch"
+    try:
+        sequence_number = int(sequence_number)
+    except (TypeError, ValueError):
+        return "invalid_sequence_number"
+    expected_sequence = (endpoint.inventory_sequence_number or 0) + 1
+    if INVENTORY_RESYNC_ON_SEQUENCE_GAP and sequence_number != expected_sequence:
+        return "sequence_gap"
+    if INVENTORY_RESYNC_ON_HASH_MISMATCH and previous_hash and endpoint.inventory_current_hash:
+        if previous_hash != endpoint.inventory_current_hash:
+            return "hash_mismatch"
+    return None
+
+
+async def _submit_payload(
+    *,
+    payload_type: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session,
+) -> TelemetryIngestResponse:
+    started_at = time.perf_counter()
+    payload, payload_size = await _read_telemetry_body(request)
+    source_ip = resolve_client_ip(request)
+    if source_ip is not None:
+        _apply_ingest_rate_limit(source_ip)
+    endpoint_id, hostname = _extract_endpoint_identity(payload)
+    reported_ipv4 = _payload_network_ipv4(payload)
+    if LOG_TELEMETRY_PAYLOAD_SIZE:
+        logger.info(
+            "telemetry received payload_type=%s endpoint_id=%s hostname=%s source_ip=%s reported_ipv4=%s payload_bytes=%s",
+            payload_type,
+            endpoint_id,
+            hostname,
+            source_ip,
+            reported_ipv4,
+            payload_size,
+        )
+
+    endpoint, created_endpoint, stored_at = _upsert_endpoint_liveness(
+        db=db,
+        payload=payload,
+        payload_type=payload_type,
+        source_ip=source_ip,
+    )
+
+    if payload_type == "heartbeat":
+        logger.info(
+            "stored heartbeat endpoint_id=%s source_ip=%s created_endpoint=%s trigger_evaluation=false",
+            endpoint.endpoint_id,
+            source_ip,
+            created_endpoint,
+        )
+        return TelemetryIngestResponse(
+            endpoint_id=endpoint.endpoint_id,
+            record_id=None,
+            stored_at=stored_at,
+            payload_type=payload_type,
+            evaluation_triggered=False,
+        )
+
+    if payload_type == "inventory_delta":
+        reason = _inventory_delta_resync_reason(endpoint, payload)
+        if reason is not None:
+            logger.warning(
+                "inventory delta requires resync endpoint_id=%s reason=%s baseline_id=%s sequence_number=%s",
+                endpoint.endpoint_id,
+                reason,
+                payload.get("baseline_id"),
+                payload.get("sequence_number"),
+            )
+            return TelemetryIngestResponse(
+                endpoint_id=endpoint.endpoint_id,
+                record_id=None,
+                stored_at=stored_at,
+                payload_type=payload_type,
+                evaluation_triggered=False,
+                resync_required=True,
+                reason=reason,
+            )
+
+    normalized_payload = _normalize_endpoint_telemetry_payload(payload, payload_type)
+    try:
+        telemetry = EndpointTelemetry.model_validate(normalized_payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+    record = _store_latest_telemetry_record(
+        db=db,
+        endpoint=endpoint,
+        telemetry=telemetry,
+        payload=payload,
+        payload_type=payload_type,
+        source_ip=source_ip,
+    )
+
+    if payload_type == "inventory_full":
+        endpoint.inventory_baseline_id = str(payload.get("baseline_id") or payload.get("baseline") or _stable_hash(payload))
+        try:
+            endpoint.inventory_sequence_number = int(payload.get("sequence_number") or 0)
+        except (TypeError, ValueError):
+            endpoint.inventory_sequence_number = 0
+        endpoint.inventory_current_hash = str(payload.get("current_hash") or _stable_hash(payload))
+        db.commit()
+    elif payload_type == "inventory_delta":
+        try:
+            endpoint.inventory_sequence_number = int(payload.get("sequence_number"))
+        except (TypeError, ValueError):
+            endpoint.inventory_sequence_number = endpoint.inventory_sequence_number or 0
+        endpoint.inventory_current_hash = str(payload.get("current_hash") or _stable_hash(payload))
+        db.commit()
+
+    evaluation_triggered = False
+    trigger_evaluation = (
+        (payload_type in {"legacy", "posture_snapshot"} and POSTURE_TRIGGERS_EVALUATION)
+        or (payload_type == "inventory_full" and INVENTORY_FULL_TRIGGERS_EVALUATION)
+        or (payload_type == "inventory_delta" and INVENTORY_DELTA_TRIGGERS_EVALUATION)
+    )
+    if payload_type == "posture_snapshot" and SKIP_EVALUATION_IF_POSTURE_HASH_UNCHANGED and not FORCE_EVALUATION_ON_EVERY_POSTURE:
+        trigger_evaluation = False
+    if trigger_evaluation:
+        evaluation_triggered = True
+        if PROCESS_POSTURE_IN_BACKGROUND:
+            background_tasks.add_task(trigger_posture_evaluation, endpoint.endpoint_id)
+        else:
+            trigger_posture_evaluation(endpoint.endpoint_id)
 
     logger.info(
-        "stored telemetry endpoint_id=%s hostname=%s source_ip=%s record_id=%s interval=%s grace_multiplier=%s activity_timeout=%s created_endpoint=%s trigger_type=%s",
-        telemetry.endpoint_id,
-        telemetry.hostname,
+        "stored telemetry payload_type=%s endpoint_id=%s hostname=%s source_ip=%s record_id=%s interval=%s grace_multiplier=%s activity_timeout=%s created_endpoint=%s trigger_evaluation=%s",
+        payload_type,
+        endpoint.endpoint_id,
+        endpoint.hostname,
         source_ip,
         record.id,
         telemetry.agent.interval_seconds,
         endpoint.activity_grace_multiplier,
-        (endpoint.expected_interval_seconds or 0) * (endpoint.activity_grace_multiplier or DEFAULT_ACTIVITY_GRACE_MULTIPLIER),
+        ENDPOINT_INACTIVE_AFTER_SECONDS
+        if payload_type == "heartbeat"
+        else (endpoint.expected_interval_seconds or 0) * (endpoint.activity_grace_multiplier or DEFAULT_ACTIVITY_GRACE_MULTIPLIER),
         created_endpoint,
-        "telemetry_received",
+        evaluation_triggered,
     )
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    if LOG_TELEMETRY_PROCESSING_DURATION:
+        log_method = logger.warning if duration_ms > SLOW_TELEMETRY_WARNING_MS else logger.info
+        log_method(
+            "telemetry processed payload_type=%s endpoint_id=%s duration_ms=%.2f",
+            payload_type,
+            endpoint.endpoint_id,
+            duration_ms,
+        )
 
     return TelemetryIngestResponse(
-        endpoint_id=telemetry.endpoint_id,
+        endpoint_id=endpoint.endpoint_id,
         record_id=record.id,
         stored_at=record.created_at,
+        payload_type=payload_type,
+        evaluation_triggered=evaluation_triggered,
+    )
+
+
+@app.post("/telemetry", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
+async def submit_telemetry(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    return await _submit_payload(
+        payload_type="legacy",
+        request=request,
+        background_tasks=background_tasks,
+        db=db,
+    )
+
+
+@app.post("/telemetry/heartbeat", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED)
+async def submit_heartbeat(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    return await _submit_payload(
+        payload_type="heartbeat",
+        request=request,
+        background_tasks=background_tasks,
+        db=db,
+    )
+
+
+@app.post("/telemetry/posture", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
+async def submit_posture_snapshot(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    return await _submit_payload(
+        payload_type="posture_snapshot",
+        request=request,
+        background_tasks=background_tasks,
+        db=db,
+    )
+
+
+@app.post("/telemetry/inventory/full", response_model=TelemetryIngestResponse, status_code=status.HTTP_201_CREATED)
+async def submit_inventory_full(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    return await _submit_payload(
+        payload_type="inventory_full",
+        request=request,
+        background_tasks=background_tasks,
+        db=db,
+    )
+
+
+@app.post("/telemetry/inventory/delta", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED)
+async def submit_inventory_delta(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    return await _submit_payload(
+        payload_type="inventory_delta",
+        request=request,
+        background_tasks=background_tasks,
+        db=db,
     )
 
 

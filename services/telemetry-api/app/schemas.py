@@ -7,14 +7,19 @@ from posture_shared.models.telemetry import EndpointTelemetry
 
 class TelemetryIngestResponse(BaseModel):
     endpoint_id: str
-    record_id: int
+    record_id: int | None = None
     stored_at: datetime
+    payload_type: str = "legacy"
+    evaluation_triggered: bool = False
+    resync_required: bool = False
+    reason: str | None = None
 
 
 class EndpointSummary(BaseModel):
     endpoint_id: str
     hostname: str
     last_seen: datetime
+    last_heartbeat_at: datetime | None = None
     last_collected_at: datetime | None = None
     expected_interval_seconds: int | None = None
     activity_grace_multiplier: int | None = None
