@@ -31,10 +31,12 @@ if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
 }
 
 $url = "$($BaseUrl.TrimEnd('/'))/telemetry/posture"
-$body = $payload | ConvertTo-Json -Depth 50 -Compress
+$json = $payload | ConvertTo-Json -Depth 50 -Compress
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+$bodyBytes = $utf8.GetBytes($json)
 
 try {
-    $response = Invoke-WebRequest -Uri $url -Method Post -Body $body -ContentType "application/json" -Headers $headers
+    $response = Invoke-WebRequest -Uri $url -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8" -Headers $headers
     Write-Host "HTTP $([int]$response.StatusCode)"
     Write-Host $response.Content
 }

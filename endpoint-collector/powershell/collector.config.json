@@ -19,8 +19,10 @@
     "timeout_seconds": 10,
     "retry": {
       "retry_count": 3,
-      "backoff_seconds": 1
+      "backoff_seconds": 1,
+      "heartbeat_retry_count": 1
     },
+    "heartbeat_timeout_seconds": 1,
     "bearer_token": "",
     "headers": {}
   },

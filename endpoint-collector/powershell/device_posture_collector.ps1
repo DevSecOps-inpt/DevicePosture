@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Once", "Run")]
+    [ValidateSet("Once", "Run", "RunOnceHeartbeat")]
     [string]$Mode = "Once",
     [string]$ConfigPath = "",
     [string]$ApiUrl,
@@ -60,7 +60,9 @@ function Get-DefaultConfig {
             retry = @{
                 retry_count = 3
                 backoff_seconds = 1
+                heartbeat_retry_count = 1
             }
+            heartbeat_timeout_seconds = 1
             bearer_token = ""
             headers = @{}
         }
@@ -498,7 +500,8 @@ function ConvertTo-JsonBytes {
         [string]$PayloadJson
     )
 
-    $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($PayloadJson)
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    $jsonBytes = $utf8.GetBytes($PayloadJson)
     if ([bool]$Config.payload.gzip_enabled) {
         $output = New-Object System.IO.MemoryStream
         $gzip = New-Object System.IO.Compression.GzipStream($output, [System.IO.Compression.CompressionMode]::Compress)
@@ -509,15 +512,32 @@ function ConvertTo-JsonBytes {
     return $jsonBytes
 }
 
+function ConvertTo-HexPreview {
+    param(
+        [byte[]]$Bytes,
+        [int]$Count = 64
+    )
+
+    if ($null -eq $Bytes) {
+        return ""
+    }
+    $take = [Math]::Min($Count, $Bytes.Length)
+    if ($take -le 0) {
+        return ""
+    }
+    return (($Bytes[0..($take - 1)] | ForEach-Object { $_.ToString("X2") }) -join " ")
+}
+
 function Write-DebugPayloadDump {
     param(
         [System.Collections.IDictionary]$Config,
         [string]$PayloadType,
-        [string]$PayloadJson
+        [string]$PayloadJson,
+        [byte[]]$PayloadBytes
     )
 
     if (-not [bool]$Config.payload.debug_payload_dump_enabled) {
-        return
+        return @{ json_path = $null; hex_path = $null; hex_preview = ConvertTo-HexPreview -Bytes $PayloadBytes }
     }
 
     try {
@@ -529,12 +549,49 @@ function Write-DebugPayloadDump {
             New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
         }
         $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
-        $fileName = "$timestamp-$PayloadType.json"
-        $PayloadJson | Out-File -FilePath (Join-Path $dumpDir $fileName) -Encoding utf8
+        $jsonPath = Join-Path $dumpDir "$timestamp-$PayloadType.json"
+        $hexPath = Join-Path $dumpDir "$timestamp-$PayloadType.hex.txt"
+        $utf8 = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($jsonPath, $PayloadJson, $utf8)
+        $hexPreview = ConvertTo-HexPreview -Bytes $PayloadBytes
+        [System.IO.File]::WriteAllText($hexPath, $hexPreview, $utf8)
+        Write-AgentLog -Config $Config -Level "INFO" -Message "Debug payload dump for $PayloadType json=$jsonPath hex=$hexPath hex_preview=$hexPreview"
+        return @{ json_path = $jsonPath; hex_path = $hexPath; hex_preview = $hexPreview }
     }
     catch {
         Write-AgentLog -Config $Config -Level "WARN" -Message "Failed to write debug payload dump for $PayloadType`: $($_.Exception.Message)"
+        return @{ json_path = $null; hex_path = $null; hex_preview = ConvertTo-HexPreview -Bytes $PayloadBytes }
     }
+}
+
+function Get-PayloadRetryCount {
+    param(
+        [System.Collections.IDictionary]$Config,
+        [string]$PayloadType
+    )
+
+    if ($PayloadType -eq "heartbeat") {
+        if (Test-DictionaryKey -Dictionary $Config.server.retry -Key "heartbeat_retry_count") {
+            return [Math]::Max(1, [int]$Config.server.retry.heartbeat_retry_count)
+        }
+        return 1
+    }
+    return [Math]::Max(1, [int]$Config.server.retry.retry_count)
+}
+
+function Get-PayloadTimeoutSeconds {
+    param(
+        [System.Collections.IDictionary]$Config,
+        [string]$PayloadType
+    )
+
+    if ($PayloadType -eq "heartbeat") {
+        if (Test-DictionaryKey -Dictionary $Config.server -Key "heartbeat_timeout_seconds") {
+            return [Math]::Max(1, [int]$Config.server.heartbeat_timeout_seconds)
+        }
+        return 1
+    }
+    return [Math]::Max(1, [int]$Config.server.timeout_seconds)
 }
 
 function Send-TelemetryPayload {
@@ -544,19 +601,21 @@ function Send-TelemetryPayload {
         [string]$PayloadJson
     )
 
-    if ([bool]$Config.dry_run -or ((Test-DictionaryKey -Dictionary $Config.server -Key "enabled") -and -not [bool]$Config.server.enabled)) {
-        Write-AgentLog -Config $Config -Level "INFO" -Message "Dry-run enabled; not sending $PayloadType"
-        return $null
-    }
-
     $jsonBytes = ConvertTo-JsonBytes -Config $Config -PayloadJson $PayloadJson
+    $dumpInfo = Write-DebugPayloadDump -Config $Config -PayloadType $PayloadType -PayloadJson $PayloadJson -PayloadBytes $jsonBytes
     if ($Config.payload.max_payload_bytes -and $jsonBytes.Length -gt [int]$Config.payload.max_payload_bytes) {
         throw "Payload '$PayloadType' is $($jsonBytes.Length) bytes, above max_payload_bytes=$($Config.payload.max_payload_bytes)"
     }
-    $timeout = [int]$Config.server.timeout_seconds
-    $retries = [int]$Config.server.retry.retry_count
+    if ([bool]$Config.dry_run -or ((Test-DictionaryKey -Dictionary $Config.server -Key "enabled") -and -not [bool]$Config.server.enabled)) {
+        Write-AgentLog -Config $Config -Level "INFO" -Message "Dry-run enabled; not sending $PayloadType bytes=$($jsonBytes.Length) hex_preview=$($dumpInfo.hex_preview) payload_dump=$($dumpInfo.json_path)"
+        return $null
+    }
+    $timeout = Get-PayloadTimeoutSeconds -Config $Config -PayloadType $PayloadType
+    $retries = Get-PayloadRetryCount -Config $Config -PayloadType $PayloadType
     $backoffSeconds = [int]$Config.server.retry.backoff_seconds
     $url = Get-EndpointUrl -Config $Config -PayloadType $PayloadType
+    $contentType = "application/json; charset=utf-8"
+    $contentEncoding = if ([bool]$Config.payload.gzip_enabled) { "gzip" } else { "" }
     $headers = @{}
     if ($Config.server.headers -is [System.Collections.IDictionary]) {
         foreach ($headerKey in $Config.server.headers.Keys) {
@@ -572,18 +631,24 @@ function Send-TelemetryPayload {
 
     for ($attempt = 1; $attempt -le $retries; $attempt++) {
         try {
-            Write-AgentLog -Config $Config -Level "INFO" -Message "Sending $PayloadType attempt $attempt to $url bytes=$($jsonBytes.Length)"
+            Write-AgentLog -Config $Config -Level "INFO" -Message "Sending $PayloadType attempt $attempt to $url bytes=$($jsonBytes.Length) content_type=$contentType content_encoding=$contentEncoding hex_preview=$($dumpInfo.hex_preview)"
             $invokeParams = @{
                 Uri = $url
                 Method = "Post"
                 Body = $jsonBytes
-                ContentType = "application/json; charset=utf-8"
+                ContentType = $contentType
                 TimeoutSec = $timeout
+                UseBasicParsing = $true
             }
             if ($headers.Count -gt 0) {
                 $invokeParams.Headers = $headers
             }
-            $response = Invoke-RestMethod @invokeParams
+            $rawResponse = Invoke-WebRequest @invokeParams
+            $response = if (-not [string]::IsNullOrWhiteSpace($rawResponse.Content)) {
+                $rawResponse.Content | ConvertFrom-Json
+            } else {
+                $null
+            }
             Write-AgentLog -Config $Config -Level "INFO" -Message "$PayloadType POST succeeded"
             return $response
         }
@@ -610,7 +675,7 @@ function Send-TelemetryPayload {
                     $errorDetail = "$errorDetail response=<failed to read error body: $($_.Exception.Message)>"
                 }
             }
-            Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType POST attempt $attempt failed url=$url status=$statusCode bytes=$($jsonBytes.Length): $errorDetail"
+            Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType POST attempt $attempt failed url=$url status=$statusCode bytes=$($jsonBytes.Length) content_type=$contentType content_encoding=$contentEncoding payload_dump=$($dumpInfo.json_path) hex_dump=$($dumpInfo.hex_path) hex_preview=$($dumpInfo.hex_preview): $errorDetail"
             if ($attempt -eq $retries) {
                 throw
             }
@@ -922,14 +987,10 @@ function Send-PayloadObject {
 
     $payloadJson = $Payload | ConvertTo-Json -Depth 50 -Compress
     Write-PayloadToDisk -Config $Config -PayloadJson $payloadJson
-    Write-DebugPayloadDump -Config $Config -PayloadType $PayloadType -PayloadJson $payloadJson
     if (-not $Quiet) {
         Write-Output $payloadJson
     }
-    if (-not $NoSend) {
-        return Send-TelemetryPayload -Config $Config -PayloadType $PayloadType -PayloadJson $payloadJson
-    }
-    return $null
+    return Send-TelemetryPayload -Config $Config -PayloadType $PayloadType -PayloadJson $payloadJson
 }
 
 function Invoke-PayloadSafely {
@@ -960,6 +1021,18 @@ function Invoke-AgentOnce {
         Write-Output ($response | ConvertTo-Json -Depth 6)
     }
     Write-AgentLog -Config $Config -Level "INFO" -Message "One-shot collector cycle completed for $($payload.endpoint_id)"
+}
+
+function Invoke-AgentRunOnceHeartbeat {
+    param([System.Collections.IDictionary]$Config)
+
+    Write-AgentLog -Config $Config -Level "INFO" -Message "Running one collector heartbeat cycle"
+    $payload = New-HeartbeatPayload -Config $Config
+    $response = Send-PayloadObject -Config $Config -PayloadType "heartbeat" -Payload $payload
+    if ($null -ne $response -and -not $Quiet) {
+        Write-Output ($response | ConvertTo-Json -Depth 6)
+    }
+    Write-AgentLog -Config $Config -Level "INFO" -Message "One-shot heartbeat cycle completed for $($payload.endpoint_ref)"
 }
 
 function Start-AgentLoop {
@@ -1044,6 +1117,9 @@ try {
 
     if ($Mode -eq "Run") {
         Start-AgentLoop -Config $config
+    }
+    elseif ($Mode -eq "RunOnceHeartbeat") {
+        Invoke-AgentRunOnceHeartbeat -Config $config
     }
     else {
         Invoke-AgentOnce -Config $config
