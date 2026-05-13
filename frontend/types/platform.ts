@@ -15,7 +15,12 @@ export type PolicyActionType =
 export interface EndpointSummary {
   endpoint_id: string;
   hostname: string;
+  last_ipv4?: string | null;
+  last_source_ip?: string | null;
   last_seen: string;
+  last_heartbeat_at?: string | null;
+  last_posture_received_at?: string | null;
+  last_inventory_received_at?: string | null;
   last_collected_at: string | null;
   expected_interval_seconds: number | null;
   activity_grace_multiplier: number | null;

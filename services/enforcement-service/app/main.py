@@ -838,6 +838,15 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
     actions = plan.get("actions", [])
     if not isinstance(actions, list):
         actions = []
+    actions = [action for action in actions if isinstance(action, dict) and action.get("enabled") is not False]
+
+    def enabled_plan_actions(value: Any) -> list[dict]:
+        if not isinstance(value, list):
+            return []
+        return [action for action in value if isinstance(action, dict) and action.get("enabled") is not False]
+
+    on_compliant_actions = enabled_plan_actions(plan.get("on_compliant"))
+    on_non_compliant_actions = enabled_plan_actions(plan.get("on_non_compliant"))
 
     adapter_name = str(plan.get("adapter") or DEFAULT_ADAPTER)
     adapter_profile = plan.get("adapter_profile")
@@ -909,7 +918,8 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             event_type="endpoint.policy_action.skipped",
         )
 
-    if not actions:
+    policy_branch_actions = [*on_compliant_actions, *on_non_compliant_actions]
+    if not actions and not policy_branch_actions:
         return results
 
     execution_gate = plan.get("execution_gate") if isinstance(plan, dict) else None
@@ -947,7 +957,7 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
 
             if not gate_passed:
                 if gate_operator == "exists in" and action_adds_to_gate_group(
-                    actions=actions,
+                    actions=[*actions, *policy_branch_actions],
                     context=context,
                     default_group_name=default_group_name,
                     gate_group_name=gate_group_name,
@@ -977,6 +987,157 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
                     }
                     append_result(payload, event_type="endpoint.policy_action.skipped")
                     return results
+
+    def action_group_key(raw_action: dict) -> str | None:
+        parameters = raw_action.get("parameters", {})
+        if not isinstance(parameters, dict):
+            parameters = {}
+        rendered_parameters = render_templates(parameters, context)
+        group_id = rendered_parameters.get("group_id")
+        group_name = rendered_parameters.get("group_name") or default_group_name
+        if group_id and str(group_id).strip():
+            return f"id:{str(group_id).strip().casefold()}"
+        if group_name and str(group_name).strip():
+            return f"name:{str(group_name).strip().casefold()}"
+        return None
+
+    def reconcile_group_membership(raw_action: dict, desired_present: bool) -> str | None:
+        action_type = str(raw_action.get("action_type", "")).strip()
+        if action_type != "object.add_ip_to_group":
+            return None
+        parameters = raw_action.get("parameters", {})
+        if not isinstance(parameters, dict):
+            parameters = {}
+        rendered_parameters = render_templates(parameters, context)
+        group_name = rendered_parameters.get("group_name") or default_group_name
+        group_id = rendered_parameters.get("group_id")
+        action_key = action_group_key(raw_action)
+        resolved_group = resolve_group_reference(
+            db=db,
+            group_name=str(group_name) if group_name else None,
+            group_id=str(group_id) if group_id else None,
+        )
+        if resolved_group is not None:
+            group_name = resolved_group.name
+
+        def append_reconcile(payload: dict, event_suffix: str) -> None:
+            append_result(payload, event_type=f"policy.group_reconcile.{event_suffix}")
+
+        if not decision.endpoint_ip:
+            append_reconcile(
+                {
+                    "action_type": "policy.group_reconcile",
+                    "status": "failed",
+                    "group_name": str(group_name) if group_name else None,
+                    "group_id": str(group_id) if group_id else None,
+                    "message": "endpoint_ip is missing",
+                    "action_source": "policy_reconciliation",
+                },
+                "failed",
+            )
+            return action_key
+        if not group_name:
+            append_reconcile(
+                {
+                    "action_type": "policy.group_reconcile",
+                    "status": "failed",
+                    "message": "group_name is missing",
+                    "action_source": "policy_reconciliation",
+                },
+                "failed",
+            )
+            return action_key
+        if not group_is_managed(group_name, group_id, resolved_group):
+            append_reconcile(
+                {
+                    "action_type": "policy.group_reconcile",
+                    "status": "failed",
+                    "group_name": str(group_name) if group_name else None,
+                    "group_id": str(group_id) if group_id else None,
+                    "message": "Policy is not allowed to manage this group",
+                    "action_source": "policy_reconciliation",
+                },
+                "failed",
+            )
+            return action_key
+        if desired_present and group_id and resolved_group is None:
+            append_reconcile(
+                {
+                    "action_type": "policy.group_reconcile",
+                    "status": "failed",
+                    "group_name": str(group_name) if group_name else None,
+                    "group_id": str(group_id),
+                    "message": "group_id not found",
+                    "action_source": "policy_reconciliation",
+                },
+                "failed",
+            )
+            return action_key
+
+        object_name = str(rendered_parameters.get("object_name") or f"endpoint-{decision.endpoint_id}")
+        with _get_group_operation_lock("policy-reconcile", str(group_name), decision.endpoint_ip):
+            group = resolved_group
+            ip_object = find_ip_host_object(db, decision.endpoint_ip)
+            if desired_present:
+                group = group if group is not None else ensure_ip_group(db, str(group_name))
+                ip_object = ip_object or ensure_ip_object(
+                    db=db,
+                    name=object_name,
+                    object_type="host",
+                    value=decision.endpoint_ip,
+                    description=f"Auto-managed for endpoint {decision.endpoint_id}",
+                    managed_by="policy",
+                )
+                changed = add_object_to_group(db=db, group=group, ip_object=ip_object)
+                operation = "added" if changed else "already_present"
+            else:
+                if group is None or ip_object is None:
+                    operation = "already_absent"
+                else:
+                    changed = remove_object_from_group(db=db, group=group, ip_object=ip_object)
+                    operation = "removed" if changed else "already_absent"
+
+        append_reconcile(
+            {
+                "action_type": "policy.group_reconcile",
+                "status": "success",
+                "group_name": group.name if group is not None else str(group_name),
+                "group_id": group.group_id if group is not None else (str(group_id) if group_id else None),
+                "object_id": ip_object.object_id if ip_object is not None else None,
+                "operation": operation,
+                "action_source": "policy_reconciliation",
+                "reasons": [
+                    reason.model_dump(mode="json") if hasattr(reason, "model_dump") else reason
+                    for reason in decision.reasons
+                ],
+            },
+            operation,
+        )
+        return action_key
+
+    desired_actions: dict[str, tuple[dict, bool]] = {}
+    branch_order: list[tuple[list[dict], bool]]
+    if decision.compliant:
+        branch_order = [(on_non_compliant_actions, False), (on_compliant_actions, True)]
+    else:
+        branch_order = [(on_compliant_actions, False), (on_non_compliant_actions, True)]
+    for branch_actions, desired_present in branch_order:
+        for branch_action in branch_actions:
+            if str(branch_action.get("action_type", "")).strip() != "object.add_ip_to_group":
+                continue
+            key = action_group_key(branch_action)
+            if key is not None:
+                desired_actions[key] = (branch_action, desired_present)
+
+    reconciled_group_keys: set[str] = set()
+    for key, (branch_action, desired_present) in desired_actions.items():
+        reconciled_key = reconcile_group_membership(branch_action, desired_present)
+        if reconciled_key is not None:
+            reconciled_group_keys.add(reconciled_key)
+
+    if not actions:
+        return results
+
     for raw_action in actions:
         if not isinstance(raw_action, dict):
             continue
@@ -984,6 +1145,10 @@ def execute_policy_plan(decision: ComplianceDecision, db: Session) -> list[dict]
             continue
 
         action_type = str(raw_action.get("action_type", "")).strip()
+        if action_type in {"object.add_ip_to_group", "object.remove_ip_from_group"}:
+            key = action_group_key(raw_action)
+            if key in reconciled_group_keys:
+                continue
         parameters = raw_action.get("parameters", {})
         if not isinstance(parameters, dict):
             parameters = {}

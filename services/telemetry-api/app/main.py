@@ -118,6 +118,10 @@ def ensure_endpoint_runtime_columns() -> None:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_source_ip VARCHAR(64)")
     if "last_heartbeat_at" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN last_heartbeat_at DATETIME")
+    if "last_posture_received_at" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN last_posture_received_at DATETIME")
+    if "last_inventory_received_at" not in existing_columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN last_inventory_received_at DATETIME")
     if "expected_interval_seconds" not in existing_columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN expected_interval_seconds INTEGER")
     if "activity_grace_multiplier" not in existing_columns:
@@ -671,6 +675,23 @@ def _normalize_endpoint_telemetry_payload(payload: dict[str, Any], payload_type:
     return normalized
 
 
+def _set_latest_endpoint_seen(endpoint: Endpoint, timestamp: datetime) -> None:
+    values = [
+        value
+        for value in (
+            endpoint.last_heartbeat_at,
+            endpoint.last_posture_received_at,
+            endpoint.last_inventory_received_at,
+            timestamp,
+        )
+        if value is not None
+    ]
+    endpoint.last_seen = max(
+        values,
+        key=lambda value: value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc),
+    )
+
+
 def _upsert_endpoint_liveness(
     *,
     db: Session,
@@ -690,15 +711,26 @@ def _upsert_endpoint_liveness(
         created_endpoint = True
 
     now = datetime.now(timezone.utc)
-    endpoint.hostname = hostname
-    endpoint.last_ipv4 = _payload_network_ipv4(payload)
-    endpoint.last_source_ip = source_ip
-    endpoint.last_seen = now
-    endpoint.last_heartbeat_at = now
+    if payload_type in {"legacy", "posture_snapshot"}:
+        endpoint.hostname = hostname
+    elif not endpoint.hostname:
+        endpoint.hostname = hostname
+    if payload_type in {"heartbeat", "legacy"}:
+        endpoint.last_heartbeat_at = now
+        endpoint.last_ipv4 = _payload_network_ipv4(payload)
+        endpoint.last_source_ip = source_ip
+        endpoint.expected_interval_seconds = _payload_agent_interval(payload, payload_type)
+        endpoint.activity_grace_multiplier = ACTIVITY_GRACE_MULTIPLIER
+        endpoint.last_activity_status = "active"
+    if payload_type in {"legacy", "posture_snapshot"}:
+        endpoint.last_posture_received_at = now
+        if endpoint.last_heartbeat_at is None:
+            endpoint.last_ipv4 = _payload_network_ipv4(payload)
+            endpoint.last_source_ip = source_ip
+    elif payload_type in {"inventory_full", "inventory_delta"}:
+        endpoint.last_inventory_received_at = now
+    _set_latest_endpoint_seen(endpoint, now)
     endpoint.last_collected_at = collected_at
-    endpoint.expected_interval_seconds = _payload_agent_interval(payload, payload_type)
-    endpoint.activity_grace_multiplier = ACTIVITY_GRACE_MULTIPLIER
-    endpoint.last_activity_status = "active"
     endpoint.archived_at = None
     endpoint.archived_reason = None
     endpoint.archived_by = None
@@ -726,6 +758,22 @@ def _store_latest_telemetry_record(
     telemetry_payload["extras"] = extras
 
     record = db.scalar(select(TelemetryRecord).where(TelemetryRecord.endpoint_ref == endpoint.id))
+    if payload_type in {"inventory_full", "inventory_delta"} and record is not None and record.telemetry_type in {
+        "legacy",
+        "posture_snapshot",
+    }:
+        raw_payload = dict(record.raw_payload) if isinstance(record.raw_payload, dict) else {}
+        extras = dict(raw_payload.get("extras")) if isinstance(raw_payload.get("extras"), dict) else {}
+        extras["latest_inventory_payload_type"] = payload_type
+        extras["latest_inventory_collected_at"] = telemetry.collected_at.isoformat()
+        extras["latest_inventory"] = payload
+        raw_payload["extras"] = extras
+        record.raw_payload = raw_payload
+        db.flush()
+        db.commit()
+        db.refresh(record)
+        return record
+
     if record is None:
         record = TelemetryRecord(
             endpoint_ref=endpoint.id,

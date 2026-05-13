@@ -28,6 +28,13 @@ class AllowedAntivirusEvaluator(EvaluatorPlugin):
                     message="Antivirus condition has no expected values configured",
                 )
             ]
+        if not telemetry.antivirus_products and not telemetry.services and not telemetry.processes:
+            return [
+                EvaluationReason(
+                    check_type=self.condition_type,
+                    message="Antivirus posture data is missing",
+                )
+            ]
 
         detection = detect_antivirus_runtime(telemetry)
         installed_families = detection.installed_families

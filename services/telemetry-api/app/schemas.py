@@ -20,8 +20,12 @@ class TelemetryIngestResponse(BaseModel):
 class EndpointSummary(BaseModel):
     endpoint_id: str
     hostname: str
+    last_ipv4: str | None = None
+    last_source_ip: str | None = None
     last_seen: datetime
     last_heartbeat_at: datetime | None = None
+    last_posture_received_at: datetime | None = None
+    last_inventory_received_at: datetime | None = None
     last_collected_at: datetime | None = None
     expected_interval_seconds: int | None = None
     activity_grace_multiplier: int | None = None

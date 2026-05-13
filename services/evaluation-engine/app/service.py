@@ -18,6 +18,16 @@ def build_execution_plan(policy: PosturePolicy | None, compliant: bool) -> dict:
         return {}
 
     actions = policy.execution.on_compliant if compliant else policy.execution.on_non_compliant
+    on_compliant_actions = [
+        action.model_dump(mode="json")
+        for action in policy.execution.on_compliant
+        if action.enabled
+    ]
+    on_non_compliant_actions = [
+        action.model_dump(mode="json")
+        for action in policy.execution.on_non_compliant
+        if action.enabled
+    ]
     enabled_actions = [
         action.model_dump(mode="json")
         for action in actions
@@ -30,6 +40,9 @@ def build_execution_plan(policy: PosturePolicy | None, compliant: bool) -> dict:
         "object_group": policy.execution.object_group,
         "managed_groups": [item.model_dump(mode="json") for item in policy.managed_groups],
         "actions": enabled_actions,
+        "selected_action_branch": "on_compliant" if compliant else "on_non_compliant",
+        "on_compliant": on_compliant_actions,
+        "on_non_compliant": on_non_compliant_actions,
         "execution_gate": policy.execution.execution_gate.model_dump(mode="json")
         if policy.execution.execution_gate
         else None,

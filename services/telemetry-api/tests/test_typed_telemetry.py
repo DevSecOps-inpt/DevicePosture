@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from fastapi import BackgroundTasks
+from sqlalchemy import select
 from starlette.requests import Request
 
 
@@ -229,6 +230,61 @@ class TypedTelemetryTests(unittest.TestCase):
         self.assertEqual(body["payload_type"], "inventory_full")
         self.assertFalse(body["evaluation_triggered"])
         self.assertEqual(self.evaluation_calls, [])
+
+    def test_inventory_full_does_not_replace_latest_posture_record(self):
+        posture_body = self._submit("posture_snapshot", self._payload("canonical-posture-pc"))
+        inventory_payload = self._payload("canonical-posture-pc")
+        inventory_payload.update(
+            {
+                "baseline_id": "base-canonical",
+                "sequence_number": 0,
+                "current_hash": "inventory-hash",
+                "inventory": {"services": [], "processes": [], "hotfixes": [], "software": []},
+            }
+        )
+
+        inventory_body = self._submit("inventory_full", inventory_payload)
+
+        self.assertEqual(posture_body["record_id"], inventory_body["record_id"])
+        db = self.db_module.SessionLocal()
+        try:
+            endpoint = db.scalar(select(self.main.Endpoint).where(self.main.Endpoint.endpoint_id == "canonical-posture-pc"))
+            record = db.scalar(select(self.main.TelemetryRecord).where(self.main.TelemetryRecord.endpoint_ref == endpoint.id))
+            self.assertEqual(record.telemetry_type, "posture_snapshot")
+            self.assertEqual(record.raw_payload["extras"]["latest_inventory_payload_type"], "inventory_full")
+        finally:
+            db.close()
+
+    def test_endpoint_summary_fields_are_owned_by_telemetry_type(self):
+        self._submit(
+            "heartbeat",
+            {
+                "endpoint_id": "field-owner-pc",
+                "hostname": "field-owner-pc",
+                "ip_address": "10.10.10.20",
+                "heartbeat_interval_seconds": 3,
+            },
+        )
+        self._submit(
+            "posture_snapshot",
+            {
+                "endpoint_id": "field-owner-pc",
+                "hostname": "field-owner-pc-renamed",
+                "ip_address": "10.10.10.21",
+                "posture": {"system_info": {"name": "Windows", "version": "11"}},
+            },
+        )
+
+        db = self.db_module.SessionLocal()
+        try:
+            endpoint = db.scalar(select(self.main.Endpoint).where(self.main.Endpoint.endpoint_id == "field-owner-pc"))
+            summary = self.main.build_endpoint_summary(endpoint)
+            self.assertEqual(summary.last_ipv4, "10.10.10.20")
+            self.assertIsNotNone(summary.last_heartbeat_at)
+            self.assertIsNotNone(summary.last_posture_received_at)
+            self.assertEqual(summary.expected_interval_seconds, 3)
+        finally:
+            db.close()
 
     def test_minimal_inventory_full_contract_does_not_trigger_evaluation(self):
         body = self._submit(

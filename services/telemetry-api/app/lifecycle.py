@@ -402,7 +402,7 @@ def reconcile_inactive_transitions(*, db: Session, logger: logging.Logger) -> No
 
     for endpoint in endpoints:
         current_status, _, timeout_seconds, lag_seconds = compute_endpoint_activity(
-            last_seen=endpoint.last_seen,
+            last_seen=getattr(endpoint, "last_heartbeat_at", None),
             expected_interval_seconds=endpoint.expected_interval_seconds,
             grace_multiplier=endpoint.activity_grace_multiplier,
             now=now,

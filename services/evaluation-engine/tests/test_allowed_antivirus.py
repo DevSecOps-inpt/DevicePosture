@@ -55,6 +55,15 @@ class AllowedAntivirusEvaluatorTests(unittest.TestCase):
         self.assertIn("Active families: []", reasons[0].message)
         self.assertIn("microsoft_defender", reasons[0].message)
 
+    def test_missing_antivirus_posture_fails_closed_with_clear_reason(self) -> None:
+        reasons = AllowedAntivirusEvaluator().evaluate(
+            EndpointTelemetry(endpoint_id="endpoint-1", hostname="host-1"),
+            self._condition(),
+        )
+
+        self.assertEqual(len(reasons), 1)
+        self.assertEqual(reasons[0].message, "Antivirus posture data is missing")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,15 +37,19 @@ def compute_endpoint_activity(
 
 def build_endpoint_summary(endpoint: Endpoint) -> EndpointSummary:
     activity_status, is_active, activity_timeout_seconds, seconds_since_seen = compute_endpoint_activity(
-        last_seen=endpoint.last_seen,
+        last_seen=getattr(endpoint, "last_heartbeat_at", None),
         expected_interval_seconds=endpoint.expected_interval_seconds,
         grace_multiplier=endpoint.activity_grace_multiplier,
     )
     return EndpointSummary(
         endpoint_id=endpoint.endpoint_id,
         hostname=endpoint.hostname,
+        last_ipv4=getattr(endpoint, "last_ipv4", None),
+        last_source_ip=getattr(endpoint, "last_source_ip", None),
         last_seen=endpoint.last_seen,
         last_heartbeat_at=getattr(endpoint, "last_heartbeat_at", None),
+        last_posture_received_at=getattr(endpoint, "last_posture_received_at", None),
+        last_inventory_received_at=getattr(endpoint, "last_inventory_received_at", None),
         last_collected_at=endpoint.last_collected_at,
         expected_interval_seconds=endpoint.expected_interval_seconds,
         activity_grace_multiplier=endpoint.activity_grace_multiplier,

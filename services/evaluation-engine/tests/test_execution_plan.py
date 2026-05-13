@@ -50,6 +50,9 @@ class ExecutionPlanTests(unittest.TestCase):
             decision.execution_plan["managed_groups"],
             [{"group_id": "ipgrp-av", "group_name": "missing_antivirus"}],
         )
+        self.assertEqual(decision.execution_plan["selected_action_branch"], "on_compliant")
+        self.assertEqual(len(decision.execution_plan["on_compliant"]), 1)
+        self.assertEqual(decision.execution_plan["on_non_compliant"], [])
 
 
 if __name__ == "__main__":

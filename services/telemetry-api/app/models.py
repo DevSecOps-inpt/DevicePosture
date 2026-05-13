@@ -20,6 +20,8 @@ class Endpoint(Base):
     last_source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_posture_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_inventory_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     activity_grace_multiplier: Mapped[int | None] = mapped_column(Integer, nullable=True)

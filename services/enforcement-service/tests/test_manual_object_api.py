@@ -11,6 +11,7 @@ from app.db import Base
 from app.models import AuditEventModel, IpGroupMemberModel, IpObjectModel
 from app.object_store import add_object_to_group, ensure_ip_group, ensure_ip_object
 from app import main
+from posture_shared.models.evaluation import ComplianceDecision
 
 
 class ManualObjectApiTests(unittest.TestCase):
@@ -133,6 +134,46 @@ class ManualObjectApiTests(unittest.TestCase):
             self.assertEqual(len(db.scalars(select(IpGroupMemberModel)).all()), 0)
             self.assertIsNone(db.scalar(select(IpObjectModel).where(IpObjectModel.object_id == object_id)))
             event = db.scalar(select(AuditEventModel).where(AuditEventModel.event_type == "object.manual_delete"))
+            self.assertIsNotNone(event)
+
+    def test_policy_reconciliation_removes_non_compliant_group_after_compliance(self) -> None:
+        with self.SessionLocal() as db:
+            group = ensure_ip_group(db, "NON_COMPLIANT_ENDPOINTS")
+            db.commit()
+            plan = {
+                "trigger_type": "telemetry_received",
+                "object_group": group.name,
+                "managed_groups": [{"group_id": group.group_id, "group_name": group.name}],
+                "on_non_compliant": [
+                    {
+                        "action_type": "object.add_ip_to_group",
+                        "enabled": True,
+                        "parameters": {"group_id": group.group_id, "group_name": group.name},
+                    }
+                ],
+                "on_compliant": [],
+                "actions": [],
+            }
+
+            non_compliant = ComplianceDecision(
+                endpoint_id="endpoint-1",
+                endpoint_ip="10.10.10.1",
+                policy_id=1,
+                policy_name="Antivirus policy",
+                trigger_type="telemetry_received",
+                compliant=False,
+                reasons=[],
+                execution_plan=plan,
+            )
+            add_results = main.execute_policy_plan(non_compliant, db)
+            self.assertIn("added", [item.get("operation") for item in add_results])
+            self.assertEqual(len(db.scalars(select(IpGroupMemberModel)).all()), 1)
+
+            compliant = non_compliant.model_copy(update={"compliant": True})
+            remove_results = main.execute_policy_plan(compliant, db)
+            self.assertIn("removed", [item.get("operation") for item in remove_results])
+            self.assertEqual(len(db.scalars(select(IpGroupMemberModel)).all()), 0)
+            event = db.scalar(select(AuditEventModel).where(AuditEventModel.event_type == "policy.group_reconcile.removed"))
             self.assertIsNotNone(event)
 
 
