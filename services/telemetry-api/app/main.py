@@ -347,7 +347,14 @@ async def _read_telemetry_body(request: Request) -> tuple[dict[str, Any], int]:
         try:
             body = gzip.decompress(body)
         except OSError as exc:
-            raise HTTPException(status_code=400, detail="Invalid gzip telemetry payload") from exc
+            # Some HTTP stacks or proxies may decompress the body but leave the
+            # original Content-Encoding header in place. Accept it only if the
+            # remaining body is valid JSON; otherwise keep the normal 400.
+            try:
+                json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise HTTPException(status_code=400, detail="Invalid gzip telemetry payload") from exc
+            logger.warning("telemetry payload had gzip header but body was already plain JSON")
         if len(body) > MAX_TELEMETRY_BODY_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

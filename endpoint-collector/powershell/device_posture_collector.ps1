@@ -540,7 +540,21 @@ function Send-TelemetryPayload {
             return $response
         }
         catch {
-            Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType POST attempt $attempt failed: $($_.Exception.Message)"
+            $errorDetail = $_.Exception.Message
+            if ($_.Exception.Response -and $_.Exception.Response.GetResponseStream()) {
+                try {
+                    $stream = $_.Exception.Response.GetResponseStream()
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    $responseBody = $reader.ReadToEnd()
+                    if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
+                        $errorDetail = "$errorDetail response=$responseBody"
+                    }
+                }
+                catch {
+                    $errorDetail = "$errorDetail response=<failed to read error body: $($_.Exception.Message)>"
+                }
+            }
+            Write-AgentLog -Config $Config -Level "WARN" -Message "$PayloadType POST attempt $attempt failed: $errorDetail"
             if ($attempt -eq $retries) {
                 throw
             }

@@ -1,5 +1,6 @@
 import importlib
 import asyncio
+import gzip
 import json
 import os
 import sys
@@ -42,8 +43,14 @@ class TypedTelemetryTests(unittest.TestCase):
         self.evaluation_calls: list[str] = []
         self.main.trigger_posture_evaluation = lambda endpoint_id: self.evaluation_calls.append(endpoint_id)
 
-    def _request(self, payload: dict) -> Request:
+    def _request(self, payload: dict, *, gzip_body: bool = False, gzip_header_only: bool = False) -> Request:
         body = json.dumps(payload).encode("utf-8")
+        headers = [(b"content-length", str(len(body)).encode("ascii"))]
+        if gzip_body:
+            body = gzip.compress(body)
+            headers = [(b"content-length", str(len(body)).encode("ascii")), (b"content-encoding", b"gzip")]
+        elif gzip_header_only:
+            headers.append((b"content-encoding", b"gzip"))
 
         async def receive():
             return {"type": "http.request", "body": body, "more_body": False}
@@ -53,19 +60,26 @@ class TypedTelemetryTests(unittest.TestCase):
                 "type": "http",
                 "method": "POST",
                 "path": "/telemetry/test",
-                "headers": [(b"content-length", str(len(body)).encode("ascii"))],
+                "headers": headers,
                 "client": ("127.0.0.1", 12345),
             },
             receive,
         )
 
-    def _submit(self, payload_type: str, payload: dict) -> dict:
+    def _submit(
+        self,
+        payload_type: str,
+        payload: dict,
+        *,
+        gzip_body: bool = False,
+        gzip_header_only: bool = False,
+    ) -> dict:
         db = self.db_module.SessionLocal()
         try:
             response = asyncio.run(
                 self.main._submit_payload(
                     payload_type=payload_type,
-                    request=self._request(payload),
+                    request=self._request(payload, gzip_body=gzip_body, gzip_header_only=gzip_header_only),
                     background_tasks=BackgroundTasks(),
                     db=db,
                 )
@@ -119,6 +133,38 @@ class TypedTelemetryTests(unittest.TestCase):
         self.assertIsNone(body["record_id"])
         self.assertFalse(body["evaluation_triggered"])
         self.assertEqual(self.evaluation_calls, [])
+
+    def test_heartbeat_accepts_gzip_body(self):
+        body = self._submit(
+            "heartbeat",
+            {
+                "endpoint_id": "heartbeat-gzip-pc",
+                "hostname": "heartbeat-gzip-pc",
+                "ip_address": "10.10.10.13",
+                "agent": {"interval_seconds": 3},
+            },
+            gzip_body=True,
+        )
+
+        self.assertEqual(body["payload_type"], "heartbeat")
+        self.assertIsNone(body["record_id"])
+        self.assertFalse(body["evaluation_triggered"])
+
+    def test_heartbeat_accepts_plain_json_with_stale_gzip_header(self):
+        body = self._submit(
+            "heartbeat",
+            {
+                "endpoint_id": "heartbeat-stale-gzip-header-pc",
+                "hostname": "heartbeat-stale-gzip-header-pc",
+                "ip_address": "10.10.10.14",
+                "agent": {"interval_seconds": 3},
+            },
+            gzip_header_only=True,
+        )
+
+        self.assertEqual(body["payload_type"], "heartbeat")
+        self.assertIsNone(body["record_id"])
+        self.assertFalse(body["evaluation_triggered"])
 
     def test_posture_snapshot_triggers_evaluation(self):
         body = self._submit("posture_snapshot", self._payload("posture-pc"))
